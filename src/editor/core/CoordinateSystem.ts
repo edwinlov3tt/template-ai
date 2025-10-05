@@ -1,32 +1,130 @@
-// src/editor/core/CoordinateSystem.ts
+/**
+ * CoordinateSystem Service
+ *
+ * Centralizes DOM↔SVG coordinate transformations with cached inverse CTM.
+ * Compatible with pointer events and setPointerCapture.
+ *
+ * Phase 0: No UI changes, just the core service.
+ */
 export class CoordinateSystem {
   private svg: SVGSVGElement | null = null
-  private invCTM: DOMMatrix | null = null
+  private cachedInverseCTM: DOMMatrix | null = null
 
-  setSvg(svg: SVGSVGElement) { this.svg = svg }
-  invalidate() { this.invCTM = null }
+  /**
+   * Set the SVG element to use for coordinate transformations.
+   * Invalidates cached transforms.
+   */
+  setSvg(svg: SVGSVGElement): void {
+    this.svg = svg
+    this.invalidate()
+  }
 
-  private ensureCTM() {
-    if (!this.svg) return null
-    if (!this.invCTM) {
-      const m = this.svg.getScreenCTM()
-      this.invCTM = m ? m.inverse() : null
+  /**
+   * Invalidate cached transforms.
+   * Call this on zoom, pan, resize, or layout shift.
+   */
+  invalidate(): void {
+    this.cachedInverseCTM = null
+  }
+
+  /**
+   * Get the inverse CTM, computing and caching if needed.
+   * Uses getScreenCTM() with fallback to getCTM().
+   */
+  private getInverseCTM(): DOMMatrix {
+    if (this.cachedInverseCTM) {
+      return this.cachedInverseCTM
     }
-    return this.invCTM
+
+    if (!this.svg) {
+      throw new Error('CoordinateSystem: SVG element not set. Call setSvg() first.')
+    }
+
+    // Prefer getScreenCTM() for element-to-viewport transform
+    let ctm = this.svg.getScreenCTM()
+
+    // Fallback to getCTM() if getScreenCTM() returns null
+    if (!ctm) {
+      ctm = this.svg.getCTM()
+    }
+
+    if (!ctm) {
+      throw new Error('CoordinateSystem: Unable to get CTM from SVG element.')
+    }
+
+    // Cache the inverse
+    this.cachedInverseCTM = ctm.inverse()
+    return this.cachedInverseCTM
   }
 
-  screenToUser(p: {x:number;y:number}) {
-    const m = this.ensureCTM()
-    if (!m) return p
-    const pt = new DOMPoint(p.x, p.y).matrixTransform(m)
-    return { x: pt.x, y: pt.y }
+  /**
+   * Convert screen coordinates (viewport pixels) to SVG user coordinates.
+   * Preserves viewBox semantics.
+   *
+   * @param p - Point in screen coordinates (e.g., from pointer event clientX/clientY)
+   * @returns Point in SVG user coordinates (viewBox units)
+   */
+  screenToUser(p: { x: number; y: number }): { x: number; y: number } {
+    const inverseCTM = this.getInverseCTM()
+
+    // Transform point using inverse CTM
+    const svgPoint = new DOMPoint(p.x, p.y).matrixTransform(inverseCTM)
+
+    return { x: svgPoint.x, y: svgPoint.y }
   }
 
-  pxDeltaToUser(dx:number, dy:number) {
-    const m = this.ensureCTM()
-    if (!m) return { dx, dy }
-    const p1 = new DOMPoint(0,0).matrixTransform(m)
-    const p2 = new DOMPoint(dx,dy).matrixTransform(m)
-    return { dx: p2.x - p1.x, dy: p2.y - p1.y }
+  /**
+   * Convert SVG user coordinates to screen coordinates (viewport pixels).
+   *
+   * @param p - Point in SVG user coordinates (viewBox units)
+   * @returns Point in screen coordinates (viewport pixels)
+   */
+  userToScreen(p: { x: number; y: number }): { x: number; y: number } {
+    if (!this.svg) {
+      throw new Error('CoordinateSystem: SVG element not set. Call setSvg() first.')
+    }
+
+    // Get the forward CTM (not cached, as we primarily use inverse)
+    let ctm = this.svg.getScreenCTM()
+
+    if (!ctm) {
+      ctm = this.svg.getCTM()
+    }
+
+    if (!ctm) {
+      throw new Error('CoordinateSystem: Unable to get CTM from SVG element.')
+    }
+
+    // Transform point using CTM
+    const screenPoint = new DOMPoint(p.x, p.y).matrixTransform(ctm)
+
+    return { x: screenPoint.x, y: screenPoint.y }
+  }
+
+  /**
+   * Convert a pixel delta (dx, dy) from screen space to user space.
+   * Useful for dragging operations.
+   *
+   * @param dx - Delta X in screen pixels
+   * @param dy - Delta Y in screen pixels
+   * @returns Delta in SVG user coordinates
+   */
+  pxDeltaToUser(dx: number, dy: number): { dx: number; dy: number } {
+    const inverseCTM = this.getInverseCTM()
+
+    // Transform deltas: create vectors at origin and at (dx, dy), then subtract
+    const origin = new DOMPoint(0, 0).matrixTransform(inverseCTM)
+    const delta = new DOMPoint(dx, dy).matrixTransform(inverseCTM)
+
+    return {
+      dx: delta.x - origin.x,
+      dy: delta.y - origin.y
+    }
   }
 }
+
+/**
+ * Create a singleton instance for convenience.
+ * For React components, consider creating an instance per canvas.
+ */
+export const coordinateSystem = new CoordinateSystem()

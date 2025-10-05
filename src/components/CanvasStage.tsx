@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react'
 import { useGesture } from '@use-gesture/react'
 import { Flex } from 'antd'
 import { SvgStage } from '../editor/svg/SvgStage'
+import { SvgStageV2 } from '../editor/svg-v2/SvgStageV2'
 import { SearchOutlined, ZoomInOutlined, ZoomOutOutlined, BorderOutlined } from '@ant-design/icons'
 import type { Template } from '../schema/types'
 import type { SmartSnapOptions } from '../editor/utils/smartSnapping'
@@ -9,6 +10,9 @@ import { LayerActionsChipOverlay } from './LayerActionsChipOverlay'
 import { PageControls } from './PageControls'
 import { applyLayoutForSize } from '../layout/layoutEngine'
 import { useEditorStore } from '../state/editorStore'
+
+// Feature flag for V2 canvas
+const USE_V2_CANVAS = import.meta.env.VITE_USE_V2_CANVAS === 'true'
 
 interface CanvasStageProps {
   template: Template | null
@@ -210,25 +214,46 @@ export function CanvasStage({
                     overflow: 'visible'
                   }}
                 >
-                  {/* SVG Stage - Native SVG Rendering */}
-                  <SvgStage
-                    ref={(el) => { svgRefs.current[page.id] = el }}
-                    template={template}
-                    page={page}
-                    width={width}
-                    height={height}
-                    ratioId={canvasSize.id}
-                    selectedSlots={currentPageId === page.id ? selectedSlots : []}
-                    onSelectionChange={onSelectionChange}
-                    onSlotModified={onSlotModified}
-                    onDuplicateSlot={onDuplicateSlot}
-                    onToggleLockSlot={onToggleLockSlot}
-                    onRemoveSlot={onRemoveSlot}
-                    snapToGrid={snapToGrid}
-                    snapGridSize={snapGridSize}
-                    smartSnapOptions={smartSnapOptions}
-                    onRequestPageFocus={setCurrentPage}
-                  />
+                  {/* SVG Stage - Feature-flagged V1/V2 rendering */}
+                  {USE_V2_CANVAS ? (
+                    <SvgStageV2
+                      ref={(el) => { svgRefs.current[page.id] = el }}
+                      template={template}
+                      page={page}
+                      width={width}
+                      height={height}
+                      ratioId={canvasSize.id}
+                      selectedSlots={currentPageId === page.id ? selectedSlots : []}
+                      onSelectionChange={onSelectionChange}
+                      onSlotModified={onSlotModified}
+                      onDuplicateSlot={onDuplicateSlot}
+                      onToggleLockSlot={onToggleLockSlot}
+                      onRemoveSlot={onRemoveSlot}
+                      snapToGrid={snapToGrid}
+                      snapGridSize={snapGridSize}
+                      smartSnapOptions={smartSnapOptions}
+                      onRequestPageFocus={setCurrentPage}
+                    />
+                  ) : (
+                    <SvgStage
+                      ref={(el) => { svgRefs.current[page.id] = el }}
+                      template={template}
+                      page={page}
+                      width={width}
+                      height={height}
+                      ratioId={canvasSize.id}
+                      selectedSlots={currentPageId === page.id ? selectedSlots : []}
+                      onSelectionChange={onSelectionChange}
+                      onSlotModified={onSlotModified}
+                      onDuplicateSlot={onDuplicateSlot}
+                      onToggleLockSlot={onToggleLockSlot}
+                      onRemoveSlot={onRemoveSlot}
+                      snapToGrid={snapToGrid}
+                      snapGridSize={snapGridSize}
+                      smartSnapOptions={smartSnapOptions}
+                      onRequestPageFocus={setCurrentPage}
+                    />
+                  )}
 
                   {/* Safe Area Guides */}
                   <svg

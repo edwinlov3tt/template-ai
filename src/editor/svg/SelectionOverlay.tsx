@@ -94,7 +94,7 @@ export function SelectionOverlay({
 
           // Drag handlers
           onDragStart={() => setIsDragging(true)}
-          onDrag={(e) => {
+          onDrag={(e: any) => {
             // Convert screen delta to viewBox delta
             const deltaX = e.delta[0] / ctm.a
             const deltaY = e.delta[1] / ctm.d
@@ -111,7 +111,7 @@ export function SelectionOverlay({
             setIsDragging(true)
             setIsResizing(true)
           }}
-          onResize={(e) => {
+          onResize={(e: any) => {
             // Convert screen dimensions to viewBox dimensions
             const newWidth = e.width / ctm.a
             const newHeight = e.height / ctm.d
@@ -139,7 +139,7 @@ export function SelectionOverlay({
 
           // Rotation handlers
           onRotateStart={() => setIsDragging(true)}
-          onRotate={(e) => {
+          onRotate={(e: any) => {
             onFrameChange(selectedSlot, {
               rotation: e.rotate
             })

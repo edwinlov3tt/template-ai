@@ -2,6 +2,8 @@ import { parse, INode } from 'svgson'
 import type { Template, Slot, SlotType } from '../schema/types'
 import { buildTemplate } from './buildTemplate'
 import { preloadTemplateFonts } from '../utils/fontLoader'
+import { wrap } from 'comlink'
+import type { SvgImportWorker } from '../workers/svgImport.worker'
 
 interface SlotGeometry {
   name: string
@@ -285,6 +287,19 @@ function inferSlotTypeFromTag(tagName: string): SlotType {
   }
 }
 
+// Lazy worker initialization
+let workerInstance: SvgImportWorker | null = null
+
+async function getSvgWorker(): Promise<SvgImportWorker> {
+  if (!workerInstance) {
+    // Import worker with ?worker suffix for Vite + vite-plugin-comlink
+    const SvgWorker = await import('../workers/svgImport.worker?worker')
+    const worker = new SvgWorker.default()
+    workerInstance = wrap<SvgImportWorker>(worker)
+  }
+  return workerInstance
+}
+
 export async function importSvgToTemplate(svgText: string) {
   const warnings: string[] = []
   const originalSize = svgText.length
@@ -297,13 +312,20 @@ export async function importSvgToTemplate(svgText: string) {
     warnings.push(`File size: ${sizeInMB.toFixed(2)}MB. Consider using placeholder rectangles instead of embedded images.`)
   }
 
-  // Skip SVGO optimization in browser (causes Node.js module errors)
-  // SVGO should only be used server-side, not in browser
-  const data = svgText
-  const optimizedSize = data.length
-  const reduction = '0.0'
+  // Step 1: Process SVG in worker (SVGO optimization, normalize xlink:href, detect large data URIs)
+  const worker = await getSvgWorker()
+  const { optimizedSvg: data, warnings: workerWarnings, stats } = await worker.processSvg(svgText)
 
-  // NEW: Use browser DOM to extract geometry with computed transforms
+  // Merge worker warnings
+  warnings.push(...workerWarnings)
+
+  const optimizedSize = stats.optimizedSize
+  const reduction = stats.reductionPercent.toFixed(1)
+
+  // Log optimization results
+  console.log(`[importSvg] SVGO optimization: ${(originalSize / 1024).toFixed(2)}KB → ${(optimizedSize / 1024).toFixed(2)}KB (${reduction}% reduction)`)
+
+  // Step 2: Use browser DOM to extract geometry with computed transforms
   const slotGeometries = await extractGeometriesFromDOM(data, warnings)
 
   // Step 2: svgson parse to AST
@@ -363,8 +385,8 @@ export async function importSvgToTemplate(svgText: string) {
     foundSlots: slotGeometries.map(s => s.name),
     warnings,
     optimizationStats: {
-      originalSize,
-      optimizedSize,
+      originalSize: stats.originalSize,
+      optimizedSize: stats.optimizedSize,
       reduction: `${reduction}%`
     }
   }
