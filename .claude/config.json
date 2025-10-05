@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+        "playwright": {
+            "command": "node",
+            "args": [
+                "/Users/edwinlovettiii/Desktop/playwright-mcp-server/server.js"
+            ]
+        }
+    }
+}

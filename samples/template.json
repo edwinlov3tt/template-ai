@@ -1,0 +1,43 @@
+{
+  "id": "demo",
+  "version": 1,
+  "canvas": {
+    "baseViewBox": [
+      0,
+      0,
+      1080,
+      1080
+    ],
+    "ratios": [
+      "1:1",
+      "4:5"
+    ]
+  },
+  "tokens": {
+    "palette": {
+      "brand": "#1fb6ff"
+    },
+    "typography": {
+      "heading": {
+        "family": "Inter",
+        "weight": 700,
+        "minSize": 28,
+        "maxSize": 64
+      }
+    }
+  },
+  "slots": [
+    {
+      "name": "logo",
+      "type": "image",
+      "z": 30
+    }
+  ],
+  "constraints": {},
+  "accessibility": {
+    "contrastPolicy": {
+      "mode": "WCAG",
+      "min": 4.5
+    }
+  }
+}

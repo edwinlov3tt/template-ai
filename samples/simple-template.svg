@@ -1,0 +1,9 @@
+
+<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="1080" height="1080" fill="#0e1a33"/>
+  <rect data-slot="logo" x="40" y="40" width="160" height="60" fill="#1fb6ff" />
+  <rect data-slot="bg" x="540" y="0" width="540" height="1080" fill="#c7d2fe" />
+  <text data-slot="headline" x="40" y="180" fill="#ffffff" font-size="56" font-family="Inter">Modern Home For Sale</text>
+  <text data-slot="subhead" x="40" y="240" fill="#cbd5e1" font-size="24" font-family="Inter">A lovely 2BR with tons of light.</text>
+  <rect data-slot="cta" x="40" y="980" width="200" height="60" rx="12" fill="#f97316" />
+</svg>

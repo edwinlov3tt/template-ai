@@ -1,0 +1,26 @@
+{
+  "refactor/coordinate-system": [
+    "src/editor/core/CoordinateSystem.ts",
+    "src/editor/core/__tests__/CoordinateSystem.test.ts"
+  ],
+  "refactor/interaction-sm": [
+    "src/editor/core/InteractionStateMachine.ts",
+    "src/editor/core/__tests__/InteractionStateMachine.test.ts"
+  ],
+  "refactor/property-system": [
+    "src/editor/core/PropertyValidator.ts",
+    "src/editor/core/__tests__/PropertyValidator.test.ts"
+  ],
+  "refactor/layout-constraints": [
+    "src/editor/core/LayoutSolver.ts",
+    "src/editor/core/__tests__/LayoutSolver.test.ts"
+  ],
+  "infra/workerized-importer": [
+    "src/workers/**",
+    "config/svgo.config.js"
+  ],
+  "feature/v2-canvas-parallel": [
+    "src/editor/svg-v2/**",
+    "config/features.ts"
+  ]
+}
