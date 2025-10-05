@@ -264,6 +264,7 @@ function ImagesPanel({ onAddSlot }: { onAddSlot: (slotType: 'image') => void }) 
   const setTemplate = useEditorStore(state => state.setTemplate)
   const canvasSize = useEditorStore(state => state.canvasSize)
   const setSelection = useEditorStore(state => state.setSelection)
+  const currentPageId = useEditorStore(state => state.currentPageId)
   const history = useEditorStore(state => state.history)
 
   // Filters
@@ -354,10 +355,14 @@ function ImagesPanel({ onAddSlot }: { onAddSlot: (slotType: 'image') => void }) 
   }, [canvasSize.id])
 
   function handleImageClick(photo: any) {
-    if (!template) return
+    if (!template || !currentPageId) return
+
+    // Find current page
+    const currentPage = template.pages.find(p => p.id === currentPageId)
+    if (!currentPage) return
 
     // Generate unique slot name
-    const existingNames = template.slots.map(s => s.name)
+    const existingNames = currentPage.slots.map(s => s.name)
     let counter = 1
     let slotName = `image-${counter}`
     while (existingNames.includes(slotName)) {
@@ -376,8 +381,8 @@ function ImagesPanel({ onAddSlot }: { onAddSlot: (slotType: 'image') => void }) 
     const x = vbX + (vbWidth - defaultWidth) / 2
     const y = vbY + (vbHeight - defaultHeight) / 2
 
-    // Find highest z-index
-    const maxZ = template.slots.reduce((max, slot) => Math.max(max, slot.z), 0)
+    // Find highest z-index in current page
+    const maxZ = currentPage.slots.reduce((max, slot) => Math.max(max, slot.z), 0)
 
     // Create new slot with Pexels image
     const newSlot: any = {
@@ -394,30 +399,35 @@ function ImagesPanel({ onAddSlot }: { onAddSlot: (slotType: 'image') => void }) 
       }
     }
 
-    // Create frame for this slot
-    const newFrames = { ...template.frames }
+    // Create frame for this slot on current page
     const currentRatio = canvasSize.id
-    if (!newFrames[currentRatio]) {
-      newFrames[currentRatio] = {}
-    }
-    newFrames[currentRatio][slotName] = {
-      x,
-      y,
-      width: defaultWidth,
-      height: defaultHeight
+    const updatedPage = {
+      ...currentPage,
+      slots: [...currentPage.slots, newSlot],
+      frames: {
+        ...currentPage.frames,
+        [currentRatio]: {
+          ...(currentPage.frames[currentRatio] || {}),
+          [slotName]: {
+            x,
+            y,
+            width: defaultWidth,
+            height: defaultHeight
+          }
+        }
+      }
     }
 
-    // Update template
+    // Update template with modified page
     const newTemplate = {
       ...template,
-      slots: [...template.slots, newSlot],
-      frames: newFrames
+      pages: template.pages.map(p => p.id === currentPageId ? updatedPage : p)
     }
 
     setTemplate(newTemplate)
     setSelection([slotName])
 
-    console.log(`Added Pexels image: ${slotName}`, photo)
+    console.log(`Added Pexels image to page ${currentPageId}: ${slotName}`, photo)
   }
 
   return (
@@ -489,10 +499,6 @@ function ImagesPanel({ onAddSlot }: { onAddSlot: (slotType: 'image') => void }) 
                     color: '#ffffff',
                     borderColor: '#3a3a3a'
                   },
-                  affixWrapper: {
-                    background: '#1a1a1a',
-                    borderColor: '#3a3a3a'
-                  }
                 }}
                 classNames={{
                   input: 'dark-search-input'
@@ -1002,7 +1008,7 @@ function UploadsPanel({ onUploadSvg }: UploadsPanelProps) {
       target: {
         files: [file]
       }
-    } as React.ChangeEvent<HTMLInputElement>
+    } as unknown as React.ChangeEvent<HTMLInputElement>
     onUploadSvg(event)
   }
 
@@ -1159,7 +1165,7 @@ function InitialScreen({ onSelectSize, onUploadSvg }: InitialScreenProps) {
       target: {
         files: [file]
       }
-    } as React.ChangeEvent<HTMLInputElement>
+    } as unknown as React.ChangeEvent<HTMLInputElement>
     onUploadSvg(event)
   }
 

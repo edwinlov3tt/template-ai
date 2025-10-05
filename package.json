@@ -15,6 +15,7 @@
     "refactor:status": "bash ./refactor-status.sh"
   },
   "dependencies": {
+    "@lume/kiwi": "^0.4.4",
     "@scena/react-guides": "^0.28.2",
     "@use-gesture/react": "^10.3.1",
     "ajv": "^8.17.1",
@@ -35,12 +36,15 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@types/jsdom": "^27.0.0",
     "@types/node": "^24.6.2",
     "@types/react": "^18.2.33",
     "@types/react-dom": "^18.2.14",
     "@vitejs/plugin-react": "^5.0.4",
     "@vitest/ui": "^3.2.4",
     "comlink": "^4.4.2",
+    "jsdom": "^27.0.0",
+    "react-moveable": "^0.56.0",
     "svgo": "^3.3.2",
     "typescript": "^5.5.4",
     "vite": "^5.4.0",
