@@ -5,6 +5,7 @@ import { SlotRenderer } from '../svg/SlotRenderer'
 import { SelectionOverlayV2 } from './SelectionOverlayV2'
 import { CoordinateSystem } from '../core/CoordinateSystem'
 import type { SmartSnapOptions } from '../utils/smartSnapping'
+import { useEditorStore } from '../../state/editorStore'
 
 export interface SvgStageV2Props {
   template: Template | null
@@ -57,6 +58,10 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
   const pendingDragCleanupRef = useRef<(() => void) | null>(null)
   const suppressBackgroundClickRef = useRef(false)
 
+  // Get editing state from store
+  const editingSlot = useEditorStore(state => state.editingSlot)
+  const startEditing = useEditorStore(state => state.startEditing)
+
   // Support both object refs and callback refs from parents
   useEffect(() => {
     if (!ref) return
@@ -88,6 +93,24 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
       pendingDragCleanupRef.current?.()
     }
   }, [])
+
+  // Keyboard shortcuts for text editing
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Tab or Enter to start editing selected text slot
+      if ((e.key === 'Tab' || e.key === 'Enter') && !editingSlot && selectedSlots.length === 1) {
+        const selectedSlot = page?.slots.find(s => s.name === selectedSlots[0])
+        if (selectedSlot && (selectedSlot.type === 'text' || selectedSlot.type === 'button') && !selectedSlot.locked) {
+          e.preventDefault()
+          const startEditingAction = useEditorStore.getState().startEditing
+          startEditingAction(selectedSlots[0])
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedSlots, editingSlot, page])
 
   // Passive wheel listeners with zoom interception
   // Uses passive by default for smooth scrolling, but switches to non-passive when Ctrl/Cmd is detected
@@ -152,8 +175,15 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
   const handleSlotPointerDown = useCallback((slotName: string, event: React.MouseEvent<SVGGElement>) => {
     if (event.button !== 0) return
 
+    const slot = page?.slots.find(s => s.name === slotName)
+    const isTextSlot = slot && (slot.type === 'text' || slot.type === 'button')
+
     event.stopPropagation()
-    event.preventDefault()
+
+    // DON'T preventDefault for text slots - it blocks double-click events!
+    if (!isTextSlot) {
+      event.preventDefault()
+    }
 
     // Suppress background click
     suppressBackgroundClickRef.current = true
@@ -216,7 +246,7 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
 
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
-  }, [selectedSlots, onSelectionChange, onRequestPageFocus, page?.id])
+  }, [selectedSlots, onSelectionChange, onRequestPageFocus, page])
 
   if (!template || !page) {
     return null
@@ -235,6 +265,8 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
   return (
     <svg
       ref={internalRef}
+      data-canvas-svg="true"
+      data-page-id={page.id}
       viewBox={`${vbX} ${vbY} ${vbWidth} ${vbHeight}`}
       width={width}
       height={height}
@@ -292,8 +324,8 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
         })}
       </g>
 
-      {/* Selection overlay - rendered outside clipped area */}
-      {svgReady && selectedSlots.length > 0 && (
+      {/* Selection overlay - rendered outside clipped area (hidden when editing) */}
+      {svgReady && selectedSlots.length > 0 && !editingSlot && (
         <SelectionOverlayV2
           svgElement={internalRef.current!}
           coordinateSystem={coordinateSystem.current}

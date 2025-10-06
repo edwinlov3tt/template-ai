@@ -13,6 +13,7 @@ import { useEditorStore } from '../state/editorStore'
 
 // Feature flag for V2 canvas
 const USE_V2_CANVAS = import.meta.env.VITE_USE_V2_CANVAS === 'true'
+console.log('[CanvasStage] USE_V2_CANVAS flag:', USE_V2_CANVAS)
 
 interface CanvasStageProps {
   template: Template | null

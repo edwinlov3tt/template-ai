@@ -10,6 +10,8 @@ import { ResizeModal } from './components/ResizeModal'
 import { ExportModal } from './components/ExportModal'
 import { SettingsModal } from './components/SettingsModal'
 import { PropertiesToolbar } from './components/PropertiesToolbar'
+import { FloatingTextToolbar } from './components/typography/FloatingTextToolbar'
+import { LeftSidePanel, type LeftPanelView } from './components/LeftSidePanel'
 import { useEditorStore } from './state/editorStore'
 import { preloadTemplateFonts } from './utils/fontLoader'
 import type { SmartSnapOptions } from './editor/utils/smartSnapping'
@@ -23,6 +25,7 @@ export default function App() {
   const setTemplateName = useEditorStore(state => state.setTemplateName)
   const selectedSlots = useEditorStore(state => state.selectedSlots)
   const setSelection = useEditorStore(state => state.setSelection)
+  const editingSlot = useEditorStore(state => state.editingSlot)
   const canvasSize = useEditorStore(state => state.canvasSize)
   const setCanvasSize = useEditorStore(state => state.setCanvasSize)
   const zoom = useEditorStore(state => state.zoom)
@@ -40,6 +43,7 @@ export default function App() {
   const createNewTemplate = useEditorStore(state => state.createNewTemplate)
   const setCurrentPage = useEditorStore(state => state.setCurrentPage)
   const currentPageId = useEditorStore(state => state.currentPageId)
+  const reorderSlots = useEditorStore(state => state.reorderSlots)
 
   // Local UI state (modals)
   const [resizeModalOpen, setResizeModalOpen] = React.useState(false)
@@ -48,6 +52,7 @@ export default function App() {
   type ToolId = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more'
   const [leftPanelCollapsed, setLeftPanelCollapsed] = React.useState(false)
   const [activeTool, setActiveTool] = React.useState<ToolId | null>(null)
+  const [leftSidePanelView, setLeftSidePanelView] = React.useState<LeftPanelView>(null)
 
   // Settings state
   const [snapToGrid, setSnapToGrid] = React.useState(false)
@@ -214,8 +219,8 @@ export default function App() {
         handleToggleLockSlot(selectedSlots[0])
       }
 
-      // Delete/Backspace: Delete selected slot
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSlots.length > 0) {
+      // Delete/Backspace: Delete selected slot (only when NOT editing text)
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSlots.length > 0 && !editingSlot) {
         e.preventDefault()
         handleRemoveSlot(selectedSlots[0])
       }
@@ -252,7 +257,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedSlots, template, undo, redo, updateSlotFrame, handleDuplicateSlot, handleToggleLockSlot, handleRemoveSlot])
+  }, [selectedSlots, template, undo, redo, updateSlotFrame, handleDuplicateSlot, handleToggleLockSlot, handleRemoveSlot, editingSlot])
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -298,13 +303,21 @@ export default function App() {
   }
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      fontFamily: 'Inter, ui-sans-serif, system-ui'
-    }}>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: 'Inter, ui-sans-serif, system-ui'
+      }}
+      onClick={(e) => {
+        // Deselect when clicking on background (outside canvas)
+        if (e.target === e.currentTarget) {
+          setSelection([])
+        }
+      }}
+    >
       {/* Top Bar */}
       <div style={{ height: '48px', zIndex: 50 }}>
         <TopBar
@@ -316,8 +329,14 @@ export default function App() {
           canRedo={canRedo()}
           onValidate={handleValidate}
           onPreview={() => console.log('Preview')}
-          onExport={() => setExportModalOpen(true)}
-          onSave={() => console.log('Save')}
+          onExport={() => {
+            setSelection([]) // Clear selection before export to avoid border in output
+            setExportModalOpen(true)
+          }}
+          onSave={() => {
+            setSelection([]) // Clear selection before save
+            console.log('Save')
+          }}
           onSettingsClick={() => setSettingsModalOpen(true)}
           canvasSize={canvasSize}
           templateName={templateName}
@@ -364,8 +383,16 @@ export default function App() {
             smartSnapOptions={smartSnapOptions}
           />
 
-          {/* Properties Toolbar - Only show when a slot is selected */}
-          {template && selectedSlots.length > 0 && (
+          {/* Floating Text Toolbar - Show when text/button slots are selected (if enabled) */}
+          {import.meta.env.VITE_ADVANCED_TYPOGRAPHY === 'true' && template && selectedSlots.length > 0 && (
+            <FloatingTextToolbar
+              onOpenEffects={() => setLeftSidePanelView('effects')}
+              onOpenPosition={() => setLeftSidePanelView('position')}
+            />
+          )}
+
+          {/* Properties Toolbar - Only show when a slot is selected (legacy) */}
+          {import.meta.env.VITE_ADVANCED_TYPOGRAPHY !== 'true' && template && selectedSlots.length > 0 && (
             <PropertiesToolbar
               selectedSlot={selectedSlots[0]}
               slot={currentPageSlots.find(s => s.name === selectedSlots[0]) || null}
@@ -383,6 +410,7 @@ export default function App() {
               onToggleLockSlot={handleToggleLockSlot}
               onRemoveSlot={handleRemoveSlot}
               onSelectSlot={handleSelectSlot}
+              onReorderSlots={reorderSlots}
             />
           )}
         </div>
@@ -402,6 +430,7 @@ export default function App() {
         onClose={() => setExportModalOpen(false)}
         template={template}
         currentSize={canvasSize}
+        currentPageId={currentPageId}
       />
 
       {/* Settings Modal */}
@@ -415,6 +444,14 @@ export default function App() {
         smartSnapOptions={smartSnapOptions}
         onSmartSnapOptionsChange={setSmartSnapOptions}
       />
+
+      {/* Left Side Panel (Effects/Position) - Show when enabled */}
+      {import.meta.env.VITE_TEXT_EFFECTS === 'true' && (
+        <LeftSidePanel
+          activeView={leftSidePanelView}
+          onClose={() => setLeftSidePanelView(null)}
+        />
+      )}
     </div>
   )
 }

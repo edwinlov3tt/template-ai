@@ -4,6 +4,7 @@ import type { CoordinateSystem } from '../core/CoordinateSystem'
 import { RotateCw } from 'lucide-react'
 import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState } from '../utils/smartSnapping'
 import { SmartGuides } from '../svg/SmartGuides'
+import { useEditorStore } from '../../state/editorStore'
 
 export interface SelectionOverlayV2Props {
   svgElement: SVGSVGElement
@@ -52,6 +53,9 @@ export function SelectionOverlayV2({
   pendingAutoDrag,
   onPendingAutoDragConsumed
 }: SelectionOverlayV2Props) {
+  // Get startEditing action from store for double-click handling
+  const startEditing = useEditorStore(state => state.startEditing)
+
   const [dragState, setDragState] = useState<{
     handle: DragHandle
     startX: number
@@ -149,8 +153,24 @@ export function SelectionOverlayV2({
   const handleMouseDown = useCallback((handle: DragHandle, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
+
+    // Double-click is now handled by native onDoubleClick on the main group
+    // This handler only manages drag operations
     beginDrag(handle, e.clientX, e.clientY)
   }, [beginDrag])
+
+  // Handle double-click to enter text editing mode
+  const handleDoubleClick = useCallback(() => {
+    // Check if there's exactly one selected slot and it's a text type
+    if (selectedSlots.length === 1) {
+      const slotName = selectedSlots[0]
+      const slot = slots.find(s => s.name === slotName)
+
+      if (slot && (slot.type === 'text' || slot.type === 'button') && !slot.locked) {
+        startEditing(slotName)
+      }
+    }
+  }, [selectedSlots, slots, startEditing])
 
   // Mouse move handler
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -398,7 +418,7 @@ export function SelectionOverlayV2({
   const isSingleSelection = selectedSlots.length === 1
 
   return (
-    <g className="selection-overlay-v2">
+    <g className="selection-overlay-v2" onDoubleClick={handleDoubleClick}>
       {/* Transparent drag area */}
       <rect
         x={x}

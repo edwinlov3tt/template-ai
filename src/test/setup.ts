@@ -1,6 +1,8 @@
 // Vitest setup file
 // Add global test utilities here
 
+import '@testing-library/jest-dom'
+
 /**
  * Polyfill for DOMMatrix in jsdom environment
  * DOMMatrix is used by CoordinateSystem for coordinate transformations
@@ -259,4 +261,60 @@ if (typeof globalThis.DOMMatrix === 'undefined') {
 if (typeof globalThis.DOMPoint === 'undefined') {
   // @ts-expect-error - Adding polyfill
   globalThis.DOMPoint = DOMPointPolyfill
+}
+
+/**
+ * Canvas Mock for Text Measurement
+ * Provides a simple mock for HTMLCanvasElement.getContext('2d')
+ */
+class CanvasRenderingContext2DMock {
+  font = ''
+
+  measureText(text: string) {
+    // Simple approximation: average character width * text length
+    // Assumes monospace-ish font with ~8px per character at 16px font size
+    const fontSize = this.parseFontSize(this.font)
+    const fontWeight = this.parseFontWeight(this.font)
+    const weightMultiplier = fontWeight >= 700 ? 1.1 : 1.0
+    const charWidth = fontSize * 0.5 * weightMultiplier
+    const width = text.length * charWidth
+
+    return {
+      width,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: width,
+      fontBoundingBoxAscent: fontSize * 0.8,
+      fontBoundingBoxDescent: fontSize * 0.2,
+      actualBoundingBoxAscent: fontSize * 0.8,
+      actualBoundingBoxDescent: fontSize * 0.2,
+      emHeightAscent: fontSize * 0.8,
+      emHeightDescent: fontSize * 0.2,
+      hangingBaseline: fontSize * 0.6,
+      alphabeticBaseline: 0,
+      ideographicBaseline: -fontSize * 0.2
+    }
+  }
+
+  private parseFontSize(font: string): number {
+    const match = font.match(/(\d+)px/)
+    return match ? parseInt(match[1], 10) : 16
+  }
+
+  private parseFontWeight(font: string): number {
+    const match = font.match(/^(\d+)\s/)
+    return match ? parseInt(match[1], 10) : 400
+  }
+}
+
+// Mock HTMLCanvasElement.getContext for tests
+if (typeof HTMLCanvasElement !== 'undefined') {
+  const originalGetContext = HTMLCanvasElement.prototype.getContext
+
+  // @ts-expect-error - Mocking for tests
+  HTMLCanvasElement.prototype.getContext = function (contextType: string, options?: any) {
+    if (contextType === '2d') {
+      return new CanvasRenderingContext2DMock() as any
+    }
+    return originalGetContext?.call(this, contextType, options) || null
+  }
 }

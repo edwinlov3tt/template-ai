@@ -13,6 +13,7 @@ import {
 import { Tooltip, Button, Typography, Divider, Upload, Input, Spin } from 'antd'
 import { useEditorStore } from '../state/editorStore'
 import * as PexelsAPI from '../services/pexelsApi'
+import * as IconifyAPI from '../services/iconifyApi'
 import { shapeCategories, shapeRegistry, type ShapeDefinition, type ShapeId } from '../shapes/registry'
 import { renderShapeGeometry } from '../shapes/render'
 import type { Slot } from '../schema/types'
@@ -23,7 +24,14 @@ type Tool = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' |
 
 interface LeftRailProps {
   onUploadSvg: (e: React.ChangeEvent<HTMLInputElement>) => void
-  onAddSlot: (slotType: 'text' | 'image' | 'shape' | 'button') => void
+  onAddSlot: (
+    slotType: 'text' | 'image' | 'shape' | 'button',
+    options?: {
+      shapeId?: ShapeId
+      shapeOptions?: Record<string, unknown>
+      textStyle?: 'heading' | 'subheading' | 'body'
+    }
+  ) => void
   onInsertShape: (shapeId: ShapeId, shapeOptions?: Record<string, unknown>) => void
   onCreateNewTemplate: () => void
   onSelectSize?: (size: { id: string; w: number; h: number }) => void
@@ -214,12 +222,30 @@ export function LeftRail({
   )
 }
 
-function TextPanel({ onAddSlot }: { onAddSlot: (slotType: 'text' | 'button') => void }) {
+function TextPanel({ onAddSlot }: {
+  onAddSlot: (slotType: 'text' | 'button', options?: { textStyle?: 'heading' | 'subheading' | 'body' }) => void
+}) {
   return (
     <div>
-      <PanelHeading>Add a heading</PanelHeading>
-      <PanelButton onClick={() => onAddSlot('text')}>Add a subheading</PanelButton>
-      <PanelButton onClick={() => onAddSlot('text')}>Add body text</PanelButton>
+      {/* Text Block Buttons */}
+      <TextBlockButton
+        label="Add a heading"
+        fontSize="24px"
+        fontWeight="700"
+        onClick={() => onAddSlot('text', { textStyle: 'heading' })}
+      />
+      <TextBlockButton
+        label="Add a subheading"
+        fontSize="18px"
+        fontWeight="600"
+        onClick={() => onAddSlot('text', { textStyle: 'subheading' })}
+      />
+      <TextBlockButton
+        label="Add body text"
+        fontSize="14px"
+        fontWeight="400"
+        onClick={() => onAddSlot('text', { textStyle: 'body' })}
+      />
 
       <Divider style={{ borderColor: '#3a3a3a', margin: '24px 0' }} />
 
@@ -980,10 +1006,369 @@ function ShapeTile({ definition, onClick }: { definition: ShapeDefinition; onCli
 }
 
 function VectorsPanel() {
+  const [searchQuery, setSearchQuery] = React.useState('')
+  const [icons, setIcons] = React.useState<IconifyAPI.IconifyIcon[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Get editor store for adding icons directly
+  const template = useEditorStore(state => state.template)
+  const setTemplate = useEditorStore(state => state.setTemplate)
+  const canvasSize = useEditorStore(state => state.canvasSize)
+  const setSelection = useEditorStore(state => state.setSelection)
+  const currentPageId = useEditorStore(state => state.currentPageId)
+
+  // Load popular icons on mount
+  React.useEffect(() => {
+    if (icons.length === 0) {
+      loadDefaultIcons()
+    }
+  }, [])
+
+  async function loadDefaultIcons() {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Predefined list of popular Flat Color Icons (colorful, marketing-friendly)
+      const popularFlatColorIcons = [
+        'flat-color-icons:advertising',
+        'flat-color-icons:business-contact',
+        'flat-color-icons:like',
+        'flat-color-icons:voice-presentation',
+        'flat-color-icons:business',
+        'flat-color-icons:template',
+        'flat-color-icons:conference-call',
+        'flat-color-icons:sales-performance',
+        'flat-color-icons:share',
+        'flat-color-icons:timeline',
+        'flat-color-icons:comments',
+        'flat-color-icons:idea',
+        'flat-color-icons:approval',
+        'flat-color-icons:gallery',
+        'flat-color-icons:video-call',
+        'flat-color-icons:phone',
+        'flat-color-icons:email',
+        'flat-color-icons:search',
+        'flat-color-icons:folder',
+        'flat-color-icons:settings',
+        'flat-color-icons:edit-image',
+        'flat-color-icons:manager',
+        'flat-color-icons:speaker',
+        'flat-color-icons:survey',
+        'flat-color-icons:workflow',
+        'flat-color-icons:news',
+        'flat-color-icons:menu',
+        'flat-color-icons:camera',
+        'flat-color-icons:calendar',
+        'flat-color-icons:database',
+        'flat-color-icons:document',
+        'flat-color-icons:graduation-cap',
+        'flat-color-icons:statistics',
+        'flat-color-icons:package',
+        'flat-color-icons:globe',
+        'flat-color-icons:home',
+        'flat-color-icons:services',
+        'flat-color-icons:shop',
+        'flat-color-icons:todo-list',
+        'flat-color-icons:upload',
+        'flat-color-icons:download',
+        'flat-color-icons:bookmark',
+        'flat-color-icons:link',
+        'flat-color-icons:rules',
+        'flat-color-icons:automatic',
+        'flat-color-icons:checkmark',
+        'flat-color-icons:cancel',
+        'flat-color-icons:info'
+      ]
+
+      const parsedIcons = popularFlatColorIcons.map(fullName => IconifyAPI.parseIconName(fullName))
+      setIcons(parsedIcons)
+    } catch (err: any) {
+      console.error('Failed to load icons:', err)
+      setError(err.message || 'Failed to load icons')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSearch(value: string) {
+    if (!value.trim()) {
+      loadDefaultIcons()
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+      setSearchQuery(value)
+
+      const response = await IconifyAPI.searchIcons(value, 48)
+      const parsedIcons = response.icons.map(fullName => IconifyAPI.parseIconName(fullName))
+      setIcons(parsedIcons)
+    } catch (err: any) {
+      console.error('Failed to search icons:', err)
+      setError(err.message || 'Search failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleIconClick(icon: IconifyAPI.IconifyIcon) {
+    if (!template || !currentPageId) return
+
+    try {
+      // Get SVG URL from Iconify (no download needed, just construct URL)
+      const svgUrl = IconifyAPI.getIconSvgUrl(icon.prefix, icon.name)
+
+      // Find current page
+      const currentPage = template.pages.find(p => p.id === currentPageId)
+      if (!currentPage) return
+
+      // Generate unique slot name
+      const existingNames = currentPage.slots.map(s => s.name)
+      let counter = 1
+      let slotName = `icon-${counter}`
+      while (existingNames.includes(slotName)) {
+        counter++
+        slotName = `icon-${counter}`
+      }
+
+      // Get viewBox for positioning
+      const [vbX, vbY, vbWidth, vbHeight] = template.canvas.baseViewBox
+
+      // Calculate default size (20% of canvas width/height for icons - smaller than images)
+      const defaultWidth = vbWidth * 0.2
+      const defaultHeight = vbHeight * 0.2
+
+      // Center position
+      const x = vbX + (vbWidth - defaultWidth) / 2
+      const y = vbY + (vbHeight - defaultHeight) / 2
+
+      // Find highest z-index in current page
+      const maxZ = currentPage.slots.reduce((max, slot) => Math.max(max, slot.z), 0)
+
+      // Create new slot with Iconify icon
+      const newSlot: any = {
+        name: slotName,
+        type: 'image',
+        z: maxZ + 1,
+        fit: 'contain', // Icons should use contain, not cover
+        href: svgUrl,
+        attribution: {
+          name: icon.name,
+          collection: IconifyAPI.getCollectionDisplayName(icon.prefix),
+          source: 'Iconify',
+          sourceUrl: `https://icon-sets.iconify.design/${icon.prefix}/${icon.name}/`,
+          license: 'Open Source'
+        }
+      }
+
+      // Create frame for this slot on current page
+      const currentRatio = canvasSize.id
+      const updatedPage = {
+        ...currentPage,
+        slots: [...currentPage.slots, newSlot],
+        frames: {
+          ...currentPage.frames,
+          [currentRatio]: {
+            ...(currentPage.frames[currentRatio] || {}),
+            [slotName]: {
+              x,
+              y,
+              width: defaultWidth,
+              height: defaultHeight
+            }
+          }
+        }
+      }
+
+      // Update template with modified page
+      const newTemplate = {
+        ...template,
+        pages: template.pages.map(p => p.id === currentPageId ? updatedPage : p)
+      }
+
+      setTemplate(newTemplate)
+      setSelection([slotName])
+
+      console.log(`Added Iconify icon to page ${currentPageId}: ${slotName}`, icon)
+    } catch (err: any) {
+      console.error('Failed to add icon:', err)
+      setError(err.message || 'Failed to add icon')
+    }
+  }
+
   return (
-    <div>
-      <PanelSectionTitle>Vector Icons</PanelSectionTitle>
-      <EmptyState>Icon library coming soon</EmptyState>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PanelSectionTitle>Vector Icons & Elements</PanelSectionTitle>
+
+      {/* Search Bar */}
+      <div style={{ marginBottom: '16px' }}>
+        <Input.Search
+          placeholder="Search icons..."
+          onSearch={handleSearch}
+          style={{
+            background: '#1a1a1a',
+            borderColor: '#3a3a3a'
+          }}
+          styles={{
+            input: {
+              background: '#1a1a1a',
+              color: '#ffffff',
+              borderColor: '#3a3a3a'
+            },
+          }}
+          classNames={{
+            input: 'dark-search-input'
+          }}
+        />
+        <style>{`
+          .dark-search-input::placeholder {
+            color: #6b7280 !important;
+            opacity: 1;
+          }
+          .dark-search-input {
+            background: #1a1a1a !important;
+            color: #ffffff !important;
+          }
+          .ant-input-search-button {
+            background: #3a3a3a !important;
+            border-color: #3a3a3a !important;
+            color: #9ca3af !important;
+          }
+          .ant-input-search-button:hover {
+            background: #4a4a4a !important;
+            border-color: #4a4a4a !important;
+            color: #ffffff !important;
+          }
+        `}</style>
+      </div>
+
+      {/* Error State */}
+      {error && (
+        <div style={{
+          padding: '16px',
+          background: '#7f1d1d',
+          border: '1px solid #991b1b',
+          borderRadius: '6px',
+          color: '#fecaca',
+          fontSize: '13px',
+          marginBottom: '16px'
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '40px 0',
+          color: '#9ca3af'
+        }}>
+          <Spin size="large" />
+        </div>
+      )}
+
+      {/* Icon Grid - Scrollable Container */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        marginBottom: '16px'
+      }}>
+        {!loading && !error && icons.length > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '8px'
+          }}>
+            {icons.map((icon) => (
+              <div
+                key={icon.fullName}
+                onClick={() => handleIconClick(icon)}
+                style={{
+                  position: 'relative',
+                  aspectRatio: '1',
+                  borderRadius: '6px',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  border: '1px solid #3a3a3a',
+                  transition: 'all 0.2s',
+                  background: '#1a1a1a',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.05)'
+                  e.currentTarget.style.borderColor = '#3b82f6'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)'
+                  e.currentTarget.style.borderColor = '#3a3a3a'
+                }}
+                title={`${icon.name} (${IconifyAPI.getCollectionDisplayName(icon.prefix)})`}
+              >
+                <img
+                  src={IconifyAPI.getIconPreviewUrl(icon.prefix, icon.name, 64)}
+                  alt={icon.name}
+                  style={{
+                    width: '64px',
+                    height: '64px',
+                    objectFit: 'contain'
+                  }}
+                />
+                <div style={{
+                  fontSize: '10px',
+                  color: '#6b7280',
+                  marginTop: '4px',
+                  textAlign: 'center',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  width: '100%'
+                }}>
+                  {icon.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && !error && icons.length === 0 && (
+          <EmptyState>No icons found</EmptyState>
+        )}
+      </div>
+
+      {/* Attribution Footer */}
+      <div style={{
+        borderTop: '1px solid #3a3a3a',
+        padding: '12px 0',
+        marginTop: 'auto',
+        textAlign: 'center'
+      }}>
+        <a
+          href="https://iconify.design"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: '11px',
+            color: '#9ca3af',
+            textDecoration: 'none',
+            transition: 'color 0.2s'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+        >
+          150,000+ icons powered by Iconify
+        </a>
+      </div>
     </div>
   )
 }
@@ -1084,6 +1469,47 @@ function PanelButton({ children, onClick }: { children: React.ReactNode; onClick
     >
       {children}
     </Button>
+  )
+}
+
+function TextBlockButton({
+  label,
+  fontSize,
+  fontWeight,
+  onClick
+}: {
+  label: string
+  fontSize: string
+  fontWeight: string
+  onClick: () => void
+}) {
+  const [isHovered, setIsHovered] = React.useState(false)
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        width: '100%',
+        background: isHovered ? '#3a3a3a' : '#2a2a2a',
+        border: '1px solid #3a3a3a',
+        borderRadius: '8px',
+        padding: '16px',
+        marginBottom: '12px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.15s',
+        display: 'flex',
+        alignItems: 'center',
+        color: '#ffffff',
+        fontSize,
+        fontWeight,
+        fontFamily: 'Inter, sans-serif'
+      }}
+    >
+      {label}
+    </button>
   )
 }
 

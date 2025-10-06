@@ -4,6 +4,7 @@ import { applyLayoutForSize } from '../../layout/layoutEngine'
 import { SlotRenderer } from './SlotRenderer'
 import { NativeSelectionOverlay } from './NativeSelectionOverlay'
 import type { SmartSnapOptions } from '../utils/smartSnapping'
+import { useEditorStore } from '../../state/editorStore'
 
 export interface SvgStageProps {
   template: Template | null
@@ -55,6 +56,27 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
   const pendingDragCleanupRef = useRef<(() => void) | null>(null)
   const suppressBackgroundClickRef = useRef(false)
 
+  // Get editing state and actions from store
+  const { editingSlot, startEditing } = useEditorStore()
+
+  // Keyboard shortcuts for text editing
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Tab or Enter to start editing selected text slot
+      if ((e.key === 'Tab' || e.key === 'Enter') && !editingSlot && selectedSlots.length === 1) {
+        const allSlots = page ? page.slots : (template?.slots || [])
+        const selectedSlot = allSlots.find(s => s.name === selectedSlots[0])
+        if (selectedSlot && (selectedSlot.type === 'text' || selectedSlot.type === 'button') && !selectedSlot.locked) {
+          e.preventDefault()
+          startEditing(selectedSlots[0])
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedSlots, editingSlot, page, template, startEditing])
+
   // Support both object refs and callback refs from parents
   useEffect(() => {
     if (!ref) return
@@ -96,6 +118,8 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
   }, [onSelectionChange, onRequestPageFocus, page?.id])
 
   const handleSlotPointerDown = useCallback((slotName: string, event: React.MouseEvent<SVGGElement>) => {
+    console.log('[SvgStage] handleSlotPointerDown called for:', slotName, 'button:', event.button)
+
     if (event.button !== 0) return
 
     event.stopPropagation()
@@ -111,16 +135,21 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
     if (event.shiftKey) {
       if (selectedSlots.includes(slotName)) {
         const newSelection = selectedSlots.filter(s => s !== slotName)
+        console.log('[SvgStage] Shift-deselect, new selection:', newSelection)
         onSelectionChange(newSelection)
       } else {
         const newSelection = [...selectedSlots, slotName]
+        console.log('[SvgStage] Shift-select, new selection:', newSelection)
         onSelectionChange(newSelection)
       }
       return
     }
 
     if (!(selectedSlots.length === 1 && selectedSlots[0] === slotName)) {
+      console.log('[SvgStage] Setting selection to:', [slotName])
       onSelectionChange([slotName])
+    } else {
+      console.log('[SvgStage] Slot already selected:', slotName)
     }
 
     const candidate = {
@@ -213,6 +242,8 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
   return (
     <svg
       ref={internalRef}
+      data-canvas-svg="true"
+      data-page-id={page?.id}
       width={width}
       height={height}
       viewBox={`${viewBox[0]} ${viewBox[1]} ${viewBox[2]} ${viewBox[3]}`}
@@ -277,8 +308,20 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
       })}
       </g>
 
-      {/* Native SVG Selection Overlay - NOT clipped, always visible */}
-      {selectedSlots.length > 0 && internalRef.current && (
+      {/* Native SVG Selection Overlay - NOT clipped, always visible (hidden when editing) */}
+      {/* DEBUG: Check overlay render condition */}
+      {(() => {
+        const shouldRender = selectedSlots.length > 0 && internalRef.current && !editingSlot
+        console.log('[SvgStage] Overlay render check:', {
+          selectedSlotsLength: selectedSlots.length,
+          selectedSlots,
+          hasInternalRef: !!internalRef.current,
+          editingSlot,
+          shouldRender
+        })
+        return null
+      })()}
+      {selectedSlots.length > 0 && internalRef.current && !editingSlot && (
         <NativeSelectionOverlay
           svgElement={internalRef.current}
           selectedSlots={selectedSlots}
