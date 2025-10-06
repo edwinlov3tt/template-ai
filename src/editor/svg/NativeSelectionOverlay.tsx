@@ -3,6 +3,7 @@ import type { Slot } from '../../schema/types'
 import { RotateCw } from 'lucide-react'
 import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState } from '../utils/smartSnapping'
 import { SmartGuides } from './SmartGuides'
+import { useEditorStore } from '../../state/editorStore'
 
 export interface NativeSelectionOverlayProps {
   svgElement: SVGSVGElement
@@ -54,6 +55,12 @@ export function NativeSelectionOverlay({
   const selectedSlot = selectedSlots[0]
   const frame = selectedSlot ? frames[selectedSlot] : null
   const slot = selectedSlot ? slots.find(s => s.name === selectedSlot) : null
+
+  // Get startEditing from store for text slots
+  const { startEditing } = useEditorStore()
+
+  // Track last click time for double-click detection
+  const lastClickTimeRef = useRef<number>(0)
 
   const [dragState, setDragState] = useState<{
     handle: DragHandle
@@ -382,6 +389,48 @@ export function NativeSelectionOverlay({
     />
   )
 
+  // Check if this is a text or button slot (editable)
+  const isTextSlot = slot && (slot.type === 'text' || slot.type === 'button')
+
+  console.log('[NativeSelectionOverlay] RENDERING', {
+    selectedSlot,
+    slot: slot?.name,
+    slotType: slot?.type,
+    isTextSlot,
+    frameExists: !!frame
+  })
+
+  // Handle clicks on the transparent drag area
+  const handleDragAreaMouseDown = useCallback((e: React.MouseEvent) => {
+    console.log('[NativeSelectionOverlay] Mouse down on drag area', {
+      isTextSlot,
+      slotType: slot?.type,
+      slotName: selectedSlot,
+      locked: slot?.locked
+    })
+
+    if (isTextSlot && !slot.locked) {
+      const now = Date.now()
+      const timeSinceLastClick = now - lastClickTimeRef.current
+      lastClickTimeRef.current = now
+
+      console.log('[NativeSelectionOverlay] Time since last click:', timeSinceLastClick, 'ms')
+
+      // Double-click detection (within 300ms)
+      if (timeSinceLastClick < 300) {
+        console.log('[NativeSelectionOverlay] DOUBLE-CLICK DETECTED - Starting edit mode')
+        e.stopPropagation()
+        e.preventDefault()
+        startEditing(selectedSlot)
+        return
+      }
+    }
+
+    // Single click or non-text slot - proceed with drag
+    console.log('[NativeSelectionOverlay] Single click - proceeding with drag')
+    handleMouseDown('move', e)
+  }, [isTextSlot, slot, selectedSlot, startEditing, handleMouseDown])
+
   return (
     <g className="selection-overlay">
       {/* Transparent drag area (fills entire bounds) */}
@@ -392,8 +441,8 @@ export function NativeSelectionOverlay({
         height={height}
         fill="transparent"
         pointerEvents="all"
-        style={{ cursor: 'move' }}
-        onMouseDown={(e) => handleMouseDown('move', e)}
+        style={{ cursor: isTextSlot ? 'text' : 'move' }}
+        onMouseDown={handleDragAreaMouseDown}
       />
 
       {/* Selection border (visual only) - rounded corners, viewport-relative thickness */}

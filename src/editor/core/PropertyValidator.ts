@@ -242,9 +242,32 @@ export function validateStroke(stroke: Partial<StrokeProperties>): ValidationRes
 
 const MIN_FONT_SIZE = 6;
 const MAX_FONT_SIZE = 500;
+const MIN_LINE_HEIGHT = 0.5;
+const MAX_LINE_HEIGHT = 3.0;
 
-const VALID_FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 'normal', 'bold', 'lighter', 'bolder'];
+const VALID_FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 'normal', 'bold', 'lighter', 'bolder', 'medium', 'semibold'];
 const VALID_TEXT_ALIGNS = ['left', 'center', 'right', 'justify'];
+const VALID_FONT_STYLES = ['normal', 'italic'];
+const VALID_TEXT_TRANSFORMS = ['none', 'uppercase', 'title', 'sentence'];
+const VALID_ANCHOR_BOX_MODES = ['auto', 'fixed'];
+
+/**
+ * Map string font weights to numeric values
+ */
+const FONT_WEIGHT_MAP: Record<string, number> = {
+  'thin': 100,
+  'extralight': 200,
+  'light': 300,
+  'normal': 400,
+  'regular': 400,
+  'medium': 500,
+  'semibold': 600,
+  'bold': 700,
+  'extrabold': 800,
+  'black': 900,
+  'lighter': 300,  // Contextual, but use as default
+  'bolder': 700    // Contextual, but use as default
+};
 
 /**
  * Validates text properties
@@ -330,14 +353,184 @@ export function validateTextProperties(text: Partial<TextProperties>): Validatio
 /**
  * Validates and clamps font size
  */
-export function validateFontSize(fontSize: number): ValidationResult<number> {
+export function validateFontSize(
+  fontSize: number,
+  constraints?: { min?: number; max?: number }
+): ValidationResult<number> {
   if (typeof fontSize !== 'number' || isNaN(fontSize)) {
     return { valid: false, error: 'Font size must be a number', attempted: fontSize };
   }
 
-  const clamped = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, fontSize));
+  const min = constraints?.min ?? MIN_FONT_SIZE;
+  const max = constraints?.max ?? MAX_FONT_SIZE;
+
+  const clamped = Math.max(min, Math.min(max, fontSize));
 
   return { valid: true, value: clamped };
+}
+
+/**
+ * Validates and normalizes font family
+ * Allows any string, trims whitespace
+ */
+export function validateFontFamily(family: string): ValidationResult<string> {
+  if (typeof family !== 'string') {
+    return { valid: false, error: 'Font family must be a string', attempted: family };
+  }
+
+  const trimmed = family.trim();
+
+  if (trimmed === '') {
+    return { valid: false, error: 'Font family cannot be empty', attempted: family };
+  }
+
+  return { valid: true, value: trimmed };
+}
+
+/**
+ * Validates and normalizes font weight
+ * Accepts: numbers (100-900), strings ('normal', 'bold', etc.)
+ * Returns: numeric value (100-900)
+ */
+export function validateFontWeight(weight: number | string): ValidationResult<number> {
+  let numericWeight: number;
+
+  if (typeof weight === 'string') {
+    const normalized = weight.toLowerCase();
+    numericWeight = FONT_WEIGHT_MAP[normalized];
+
+    if (numericWeight === undefined) {
+      // Try parsing as number
+      const parsed = parseInt(weight, 10);
+      if (isNaN(parsed)) {
+        return {
+          valid: false,
+          error: `Invalid font weight: ${weight}. Use 100-900 or named weights (normal, bold, etc.)`,
+          attempted: weight
+        };
+      }
+      numericWeight = parsed;
+    }
+  } else if (typeof weight === 'number') {
+    numericWeight = weight;
+  } else {
+    return { valid: false, error: 'Font weight must be a number or string', attempted: weight };
+  }
+
+  // Clamp to valid range (100-900) and round to nearest 100
+  const clamped = Math.max(100, Math.min(900, Math.round(numericWeight / 100) * 100));
+
+  return { valid: true, value: clamped };
+}
+
+/**
+ * Validates font style
+ */
+export function validateFontStyle(style: string): ValidationResult<'normal' | 'italic'> {
+  if (!VALID_FONT_STYLES.includes(style)) {
+    return {
+      valid: false,
+      error: `Font style must be one of: ${VALID_FONT_STYLES.join(', ')}`,
+      attempted: style
+    };
+  }
+
+  return { valid: true, value: style as 'normal' | 'italic' };
+}
+
+/**
+ * Validates text transform
+ */
+export function validateTextTransform(
+  transform: string
+): ValidationResult<'none' | 'uppercase' | 'title' | 'sentence'> {
+  if (!VALID_TEXT_TRANSFORMS.includes(transform)) {
+    return {
+      valid: false,
+      error: `Text transform must be one of: ${VALID_TEXT_TRANSFORMS.join(', ')}`,
+      attempted: transform
+    };
+  }
+
+  return { valid: true, value: transform as 'none' | 'uppercase' | 'title' | 'sentence' };
+}
+
+/**
+ * Validates and clamps letter spacing
+ * Allows negative to positive range (viewBox units)
+ */
+export function validateLetterSpacing(spacing: number): ValidationResult<number> {
+  if (typeof spacing !== 'number' || isNaN(spacing)) {
+    return { valid: false, error: 'Letter spacing must be a number', attempted: spacing };
+  }
+
+  // No clamping - allow full range
+  return { valid: true, value: spacing };
+}
+
+/**
+ * Validates and clamps line height
+ * Expects unitless multiplier (e.g., 1.2, 1.5)
+ */
+export function validateLineHeight(height: number): ValidationResult<number> {
+  if (typeof height !== 'number' || isNaN(height)) {
+    return { valid: false, error: 'Line height must be a number', attempted: height };
+  }
+
+  const clamped = Math.max(MIN_LINE_HEIGHT, Math.min(MAX_LINE_HEIGHT, height));
+
+  return { valid: true, value: clamped };
+}
+
+/**
+ * Validates text align
+ */
+export function validateTextAlign(
+  align: string
+): ValidationResult<'left' | 'center' | 'right' | 'justify'> {
+  if (!VALID_TEXT_ALIGNS.includes(align)) {
+    return {
+      valid: false,
+      error: `Text align must be one of: ${VALID_TEXT_ALIGNS.join(', ')}`,
+      attempted: align
+    };
+  }
+
+  return { valid: true, value: align as 'left' | 'center' | 'right' | 'justify' };
+}
+
+/**
+ * Validates anchor box mode
+ */
+export function validateAnchorBox(mode: string): ValidationResult<'auto' | 'fixed'> {
+  if (!VALID_ANCHOR_BOX_MODES.includes(mode)) {
+    return {
+      valid: false,
+      error: `Anchor box must be one of: ${VALID_ANCHOR_BOX_MODES.join(', ')}`,
+      attempted: mode
+    };
+  }
+
+  return { valid: true, value: mode as 'auto' | 'fixed' };
+}
+
+/**
+ * Validates auto-fit boolean
+ */
+export function validateAutoFit(autoFit: boolean): ValidationResult<boolean> {
+  if (typeof autoFit !== 'boolean') {
+    return { valid: false, error: 'Auto-fit must be a boolean', attempted: autoFit };
+  }
+
+  return { valid: true, value: autoFit };
+}
+
+/**
+ * Validates text color (hex format)
+ */
+export function validateTextColor(color: string): ValidationResult<string> {
+  // Reuse existing color validation
+  return validateColor(color);
 }
 
 // ============================================================================

@@ -5,6 +5,7 @@
 
 import { Canvg } from 'canvg'
 import type { Template } from '../schema/types'
+import { convertSvgImagesToDataUris, hasExternalImages } from './imageUtils'
 
 export interface ExportOptions {
   width: number
@@ -32,6 +33,18 @@ export async function exportSvgToPng(
     backgroundColor = '#FFFFFF'
   } = options
 
+  console.log('[exportSvgToPng] Starting export with:', { width, height, format, quality, multiplier })
+  console.log('[exportSvgToPng] SVG string length:', svgString.length)
+  console.log('[exportSvgToPng] SVG preview (first 500 chars):', svgString.substring(0, 500))
+
+  // Convert external images to data URIs to avoid CORS issues
+  const hasExternal = hasExternalImages(svgString)
+  if (hasExternal) {
+    console.log('[exportSvgToPng] Converting external images to data URIs...')
+    svgString = await convertSvgImagesToDataUris(svgString)
+    console.log('[exportSvgToPng] Image conversion complete')
+  }
+
   // Create canvas
   const canvas = document.createElement('canvas')
   canvas.width = width * multiplier
@@ -47,15 +60,47 @@ export async function exportSvgToPng(
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   // Render SVG to canvas using Canvg
-  const v = await Canvg.from(ctx, svgString, {
-    scaleWidth: canvas.width,
-    scaleHeight: canvas.height
-  })
+  try {
+    const v = await Canvg.from(ctx, svgString, {
+      ignoreMouse: true,
+      ignoreAnimation: true,
+      ignoreClear: true,
+      // CRITICAL: Don't ignore dimensions - use SVG's width/height exactly
+      ignoreDimensions: false,
+      // Position at top-left corner of canvas (no offset)
+      offsetX: 0,
+      offsetY: 0,
+      // Enable CORS for cross-origin images
+      anonymousCrossOrigin: true,
+      // Custom image loader to handle CORS
+      createImage: (src: string) => {
+        const img = new Image()
+        // Set crossOrigin BEFORE setting src to enable CORS
+        img.crossOrigin = 'anonymous'
+        img.src = src
+        return img
+      }
+    })
 
-  await v.render()
+    console.log('[exportSvgToPng] Canvg instance created, rendering...')
+    console.log('[exportSvgToPng] Canvas dimensions:', canvas.width, 'x', canvas.height)
+    console.log('[exportSvgToPng] About to render SVG...')
+
+    // Render the entire SVG to the canvas at exact dimensions
+    await v.render()
+
+    console.log('[exportSvgToPng] Render complete!')
+    console.log('[exportSvgToPng] SVG should now cover full canvas without cropping')
+  } catch (error) {
+    console.error('[exportSvgToPng] Canvg render error:', error)
+    throw error
+  }
 
   // Export to data URL
-  return canvas.toDataURL(`image/${format}`, quality)
+  const dataUrl = canvas.toDataURL(`image/${format}`, quality)
+  console.log('[exportSvgToPng] DataURL generated, length:', dataUrl.length)
+
+  return dataUrl
 }
 
 /**
@@ -66,9 +111,44 @@ export async function exportToPng(
   svgElement: SVGSVGElement,
   options: ExportOptions
 ): Promise<string> {
+  console.log('[exportToPng] SVG element:', svgElement)
+  console.log('[exportToPng] viewBox:', svgElement.getAttribute('viewBox'))
+  console.log('[exportToPng] width:', svgElement.getAttribute('width'))
+  console.log('[exportToPng] height:', svgElement.getAttribute('height'))
+
+  // Clone the SVG to avoid modifying the original
+  const svgClone = svgElement.cloneNode(true) as SVGSVGElement
+
+  // Get the viewBox - this defines the coordinate system
+  const viewBox = svgElement.getAttribute('viewBox')
+  console.log('[exportToPng] Original viewBox:', viewBox)
+
+  // CRITICAL: The export dimensions must match the canvas size
+  const exportWidth = options.width * options.multiplier
+  const exportHeight = options.height * options.multiplier
+
+  svgClone.setAttribute('width', String(exportWidth))
+  svgClone.setAttribute('height', String(exportHeight))
+
+  // KEEP the original viewBox to preserve coordinate system and content positioning
+  // The viewBox defines where content is located in the coordinate space
+  if (viewBox) {
+    svgClone.setAttribute('viewBox', viewBox)
+    console.log('[exportToPng] Preserving original viewBox:', viewBox)
+  } else {
+    // Fallback if no viewBox exists
+    svgClone.setAttribute('viewBox', `0 0 ${options.width} ${options.height}`)
+  }
+
+  // CRITICAL: Use 'none' to prevent scaling/cropping
+  // This ensures the full canvas is exported, not auto-fitted to content
+  svgClone.setAttribute('preserveAspectRatio', 'none')
+
   // Serialize SVG to string
   const serializer = new XMLSerializer()
-  let svgString = serializer.serializeToString(svgElement)
+  let svgString = serializer.serializeToString(svgClone)
+
+  console.log('[exportToPng] Serialized SVG length:', svgString.length)
 
   // Ensure xmlns attributes
   if (!svgString.includes('xmlns=')) {
@@ -78,7 +158,11 @@ export async function exportToPng(
     svgString = svgString.replace('<svg', '<svg xmlns:xlink="http://www.w3.org/1999/xlink"')
   }
 
-  return exportSvgToPng(svgString, options.width, options.height, options)
+  // Use the multiplied dimensions directly since we already set them on the SVG
+  return exportSvgToPng(svgString, options.width * options.multiplier, options.height * options.multiplier, {
+    ...options,
+    multiplier: 1 // Already applied to SVG dimensions
+  })
 }
 
 /**

@@ -22,5 +22,32 @@
   "feature/v2-canvas-parallel": [
     "src/editor/svg-v2/**",
     "config/features.ts"
+  ],
+  "feature/text-typography-system": [
+    "src/editor/core/PropertyValidator.ts",
+    "src/editor/core/__tests__/PropertyValidator.typography.test.ts",
+    "src/editor/text/**",
+    "src/hooks/useFontAvailability.ts",
+    "src/utils/fontLoader.ts",
+    "src/schema/types.ts"
+  ],
+  "feature/svg-effects-engine": [
+    "src/editor/effects/**",
+    "src/schema/types.ts"
+  ],
+  "feature/position-transform-controls": [
+    "src/editor/transforms/**",
+    "src/editor/commands/TransformCommand.ts",
+    "src/schema/types.ts"
+  ],
+  "feature/effects-ui-panels": [
+    "src/components/typography/**",
+    "src/components/effects/**",
+    "src/components/position/**",
+    "src/components/controls/MixedIndicator.tsx",
+    "src/editor/commands/CommandMerger.ts",
+    "src/state/editorStore.ts",
+    "src/components/RightRail.tsx",
+    "src/App.tsx"
   ]
 }

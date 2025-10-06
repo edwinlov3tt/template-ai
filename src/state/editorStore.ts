@@ -33,6 +33,11 @@ export interface EditorState {
   selectSlot: (slotName: string) => void
   deselectAll: () => void
 
+  // Text editing
+  editingSlot: string | null
+  startEditing: (slotName: string) => void
+  stopEditing: () => void
+
   // Canvas view
   canvasSize: { id: string; w: number; h: number }
   setCanvasSize: (size: { id: string; w: number; h: number }) => void
@@ -48,7 +53,11 @@ export interface EditorState {
   deleteSlot: (slotName: string) => void
   addSlot: (
     slotType: 'text' | 'image' | 'shape' | 'button',
-    options?: { shapeId?: ShapeId; shapeOptions?: Record<string, unknown> }
+    options?: {
+      shapeId?: ShapeId
+      shapeOptions?: Record<string, unknown>
+      textStyle?: 'heading' | 'subheading' | 'body'
+    }
   ) => void
   createNewTemplate: () => void
 }
@@ -60,6 +69,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   history: null,
   currentPageId: null,
   selectedSlots: [],
+  editingSlot: null,
   canvasSize: { id: '1:1', w: 1080, h: 1080 },
   zoom: 100,
   gridVisible: false,
@@ -120,7 +130,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   // Selection actions
-  setSelection: (slots) => set({ selectedSlots: slots }),
+  setSelection: (slots) => {
+    console.log('[editorStore] setSelection called with:', slots)
+    set({ selectedSlots: slots })
+    console.log('[editorStore] selectedSlots state updated to:', slots)
+  },
 
   selectSlot: (slotName) => {
     const { selectedSlots } = get()
@@ -130,6 +144,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   deselectAll: () => set({ selectedSlots: [] }),
+
+  // Text editing actions
+  startEditing: (slotName) => {
+    console.log('[editorStore] startEditing called for:', slotName)
+    set({ editingSlot: slotName, selectedSlots: [slotName] })
+    console.log('[editorStore] editingSlot state set to:', slotName)
+  },
+
+  stopEditing: () => {
+    console.log('[editorStore] stopEditing called')
+    set({ editingSlot: null })
+  },
 
   // Page management actions
   setCurrentPage: (pageId) => {
@@ -456,15 +482,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ...(options?.shapeOptions ?? {})
     }
 
-    const defaultProps: Record<string, any> = {
-      text: {
+    // Text style presets
+    const textStylePresets = {
+      heading: {
+        fontSize: 48,
+        fill: '#111827',
+        color: '#111827',
+        fontFamily: 'Inter',
+        fontWeight: '700',
+        style: 'heading',
+        maxLines: 2,
+        content: 'Add heading'
+      },
+      subheading: {
         fontSize: 32,
         fill: '#111827',
+        color: '#111827',
         fontFamily: 'Inter',
         fontWeight: '600',
-        style: 'heading',
-        maxLines: 2
+        style: 'subheading',
+        maxLines: 3,
+        content: 'Add subheading'
       },
+      body: {
+        fontSize: 16,
+        fill: '#374151',
+        color: '#374151',
+        fontFamily: 'Inter',
+        fontWeight: '400',
+        style: 'body',
+        maxLines: 10,
+        content: 'Add body text'
+      }
+    }
+
+    const textStyle = options?.textStyle ?? 'heading'
+
+    const defaultProps: Record<string, any> = {
+      text: textStylePresets[textStyle],
       image: {
         fit: 'cover'
       },
@@ -490,7 +545,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     // Calculate center position with default size
     const defaultSize = slotType === 'text'
-      ? { w: vbWidth * 0.6, h: 60 }
+      ? textStyle === 'heading'
+        ? { w: vbWidth * 0.7, h: 80 }
+        : textStyle === 'subheading'
+        ? { w: vbWidth * 0.6, h: 60 }
+        : { w: vbWidth * 0.5, h: 120 }  // body text, taller for multiple lines
       : slotType === 'image'
       ? { w: vbWidth * 0.4, h: vbHeight * 0.4 }
       : slotType === 'button'

@@ -78,7 +78,7 @@ export interface Slot {
   fontSize?: number
   fontWeight?: string | number
   fontFamily?: string
-  textAlign?: 'left' | 'center' | 'right'
+  textAlign?: 'left' | 'center' | 'right' | 'justify'
   content?: string
   rx?: number
   ry?: number
@@ -86,6 +86,31 @@ export interface Slot {
   locked?: boolean
   markerStart?: boolean | string
   markerEnd?: boolean | string
+
+  // Typography properties (Wave 1)
+  fontStyle?: 'normal' | 'italic'
+  textTransform?: 'none' | 'uppercase' | 'title' | 'sentence'
+  letterSpacing?: number
+  lineHeight?: number
+  anchorBox?: 'auto' | 'fixed'
+  autoFit?: boolean
+  textColor?: string
+
+  // Effect properties (Wave 1 - SVG Effects Engine)
+  shadow?: { dx: number; dy: number; blur: number; color: string; alpha: number }
+  lift?: { blur: number; alpha: number }
+  neon?: { stroke: number; glow: number; color: string }
+  echo?: { count: number; dx: number; dy: number; blur: number; color: string; alpha: number }
+  glitch?: { slices: number; amplitude: number; seed?: number; colorA: string; colorB: string }
+  curve?: { radius: number }
+  imageMask?: { href: string }
+  highlight?: { fill: string; padding: [number, number]; rx?: number }
+  strokeConfig?: { width: number; color: string; paintOrder?: 'stroke fill' | 'fill stroke' }
+
+  // Transform properties (Wave 1 - Position & Transform Controls)
+  rotation?: number      // degrees (-180 to 180)
+  flipH?: boolean        // horizontal flip
+  flipV?: boolean        // vertical flip
 
   [key: string]: unknown
 }
