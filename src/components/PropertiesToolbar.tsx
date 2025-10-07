@@ -8,9 +8,10 @@ interface PropertiesToolbarProps {
   selectedSlot: string | null
   slot: Slot | null
   onUpdateSlot?: (slotId: string, updates: Partial<Slot>) => void
+  onOpenColorPanel?: () => void
 }
 
-export function PropertiesToolbar({ selectedSlot, slot, onUpdateSlot }: PropertiesToolbarProps) {
+export function PropertiesToolbar({ selectedSlot, slot, onUpdateSlot, onOpenColorPanel }: PropertiesToolbarProps) {
   // All hooks must be called before any early returns
   const [fillPopoverOpen, setFillPopoverOpen] = useState(false)
   const [borderPopoverOpen, setBorderPopoverOpen] = useState(false)
@@ -104,14 +105,13 @@ export function PropertiesToolbar({ selectedSlot, slot, onUpdateSlot }: Properti
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
       }}>
         {/* Section 1: Fill Control */}
-        <Popover
-          content={fillContent}
-          trigger="click"
-          open={fillPopoverOpen}
-          onOpenChange={setFillPopoverOpen}
-          placement="bottom"
-        >
-          <div style={{
+        <div
+          onClick={() => {
+            if (onOpenColorPanel) {
+              onOpenColorPanel()
+            }
+          }}
+          style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -120,18 +120,17 @@ export function PropertiesToolbar({ selectedSlot, slot, onUpdateSlot }: Properti
           }}
           onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
           onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-          >
-            <Square size={16} color="#374151" fill="#374151" />
-            <span style={{
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              userSelect: 'none'
-            }}>
-              Fill
-            </span>
-          </div>
-        </Popover>
+        >
+          <Square size={16} color="#374151" fill={slot.fill || '#374151'} />
+          <span style={{
+            fontSize: '14px',
+            fontWeight: '500',
+            color: '#374151',
+            userSelect: 'none'
+          }}>
+            Fill
+          </span>
+        </div>
 
         {/* Divider 1 */}
         <div style={{

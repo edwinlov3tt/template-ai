@@ -55,10 +55,11 @@ export default function Editor() {
   const [resizeModalOpen, setResizeModalOpen] = React.useState(false)
   const [exportModalOpen, setExportModalOpen] = React.useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = React.useState(false)
-  type ToolId = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more' | 'colors'
+  type ToolId = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more'
   const [leftPanelCollapsed, setLeftPanelCollapsed] = React.useState(false)
   const [activeTool, setActiveTool] = React.useState<ToolId | null>(null)
   const [leftSidePanelView, setLeftSidePanelView] = React.useState<LeftPanelView>(null)
+  const [colorPanelOpen, setColorPanelOpen] = React.useState(false)
 
   // Settings state
   const [snapToGrid, setSnapToGrid] = React.useState(false)
@@ -428,6 +429,7 @@ export default function Editor() {
               selectedSlot={selectedSlots[0]}
               slot={currentPageSlots.find(s => s.name === selectedSlots[0]) || null}
               onUpdateSlot={handleUpdateSlot}
+              onOpenColorPanel={() => setColorPanelOpen(true)}
             />
           )}
 
@@ -451,7 +453,56 @@ export default function Editor() {
             />
           )}
 
-          {/* Color Panel moved to LeftRail as 'colors' tool */}
+          {/* Floating Color Panel - Opens when user clicks fill/color controls */}
+          {colorPanelOpen && template && (
+            <div style={{
+              position: 'absolute',
+              top: '16px',
+              left: `${sidebarWidth + 16}px`,
+              width: '300px',
+              maxHeight: 'calc(100vh - 128px)',
+              background: '#1a1a1a',
+              borderRadius: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              zIndex: 30,
+              overflow: 'hidden'
+            }}>
+              {/* Header with close button */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                borderBottom: '1px solid #3a3a3a'
+              }}>
+                <span style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#e5e7eb'
+                }}>
+                  Colors
+                </span>
+                <button
+                  onClick={() => setColorPanelOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#9ca3af',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    fontSize: '18px'
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <ColorPanel />
+            </div>
+          )}
         </div>
       </div>
 

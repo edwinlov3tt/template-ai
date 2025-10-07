@@ -17,11 +17,10 @@ import * as IconifyAPI from '../services/iconifyApi'
 import { shapeCategories, shapeRegistry, type ShapeDefinition, type ShapeId } from '../shapes/registry'
 import { renderShapeGeometry } from '../shapes/render'
 import type { Slot } from '../schema/types'
-import { ColorPanel } from './color/ColorPanel'
 
 const { Title, Text } = Typography
 
-type Tool = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more' | 'colors'
+type Tool = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more'
 
 interface LeftRailProps {
   onUploadSvg: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -73,7 +72,6 @@ export function LeftRail({
     { id: 'text' as Tool, icon: <FontSizeOutlined />, label: 'Text' },
     { id: 'images' as Tool, icon: <PictureOutlined />, label: 'Images' },
     { id: 'shapes' as Tool, icon: <AppstoreAddOutlined />, label: 'Shapes' },
-    { id: 'colors' as Tool, icon: <BgColorsOutlined />, label: 'Colors' },
     { id: 'vectors' as Tool, icon: <BgColorsOutlined />, label: 'Vectors' },
     { id: 'uploads' as Tool, icon: <CloudUploadOutlined />, label: 'Uploads' },
     { id: 'more' as Tool, icon: <EllipsisOutlined />, label: 'More' }
@@ -203,12 +201,11 @@ export function LeftRail({
         </button>
 
         {/* Panel Content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: activeTool === 'colors' ? '0' : '20px', color: '#ffffff' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px', color: '#ffffff' }}>
           {activeTool === 'text' && <TextPanel onAddSlot={onAddSlot} />}
           {activeTool === 'templates' && <TemplatesPanel onCreateNew={onCreateNewTemplate} />}
           {activeTool === 'images' && <ImagesPanel onAddSlot={onAddSlot} />}
           {activeTool === 'shapes' && <ShapesPanel onInsertShape={onInsertShape} />}
-          {activeTool === 'colors' && <ColorPanel />}
           {activeTool === 'vectors' && <VectorsPanel />}
           {activeTool === 'uploads' && <UploadsPanel onUploadSvg={onUploadSvg} />}
           {activeTool === 'more' && <MorePanel />}

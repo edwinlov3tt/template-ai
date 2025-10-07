@@ -469,7 +469,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     })
 
-    // Update slot fill in template (will be done on apply)
+    // Apply gradient to slot
+    get().updateSlotFill(editingGradient.slotId, newPaint)
   },
 
   updateGradientAngle: (angle) => {
@@ -487,6 +488,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         paint: newPaint
       }
     })
+
+    // Apply gradient to slot
+    get().updateSlotFill(editingGradient.slotId, newPaint)
   },
 
   updateGradientPosition: (cx, cy, r) => {
@@ -506,6 +510,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         paint: newPaint
       }
     })
+
+    // Apply gradient to slot
+    get().updateSlotFill(editingGradient.slotId, newPaint)
   },
 
   updateGradientStop: (index, stop) => {
@@ -537,6 +544,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         paint: newPaint
       }
     })
+
+    // Apply gradient to slot
+    get().updateSlotFill(editingGradient.slotId, newPaint)
   },
 
   addGradientStop: (offset) => {
@@ -872,11 +882,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...page,
-        slots: page.slots.map(slot =>
-          slot.name === slotId
-            ? { ...slot, fill: paint.kind === 'solid' ? paint.color : undefined }
-            : slot
-        )
+        slots: page.slots.map(slot => {
+          if (slot.name !== slotId) return slot
+
+          // Handle solid colors
+          if (paint.kind === 'solid') {
+            return { ...slot, fill: paint.color, gradient: undefined }
+          }
+
+          // Handle gradients - store the full paint object in a gradient property
+          return {
+            ...slot,
+            fill: undefined,
+            gradient: paint as LinearGradientPaint | RadialGradientPaint
+          }
+        })
       }
     })
 
