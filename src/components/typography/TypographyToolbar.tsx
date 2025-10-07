@@ -44,7 +44,11 @@ export const TypographyToolbar: React.FC = () => {
   // Update handlers (apply to all selected slots)
   const handleUpdate = (property: string, value: any) => {
     textSlots.forEach(slot => {
-      updateSlot(slot.name, { [property]: value })
+      if (property === 'color') {
+        updateSlot(slot.name, { color: value, fill: value })
+      } else {
+        updateSlot(slot.name, { [property]: value })
+      }
     })
   }
 

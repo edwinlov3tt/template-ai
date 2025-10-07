@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react'
 import type { Slot } from '../../schema/types'
 import { RotateCw } from 'lucide-react'
-import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState } from '../utils/smartSnapping'
+import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState, type Frame } from '../utils/smartSnapping'
 import { SmartGuides } from './SmartGuides'
 import { useEditorStore } from '../../state/editorStore'
 
@@ -38,10 +38,10 @@ export function NativeSelectionOverlay({
   onToggleLockSlot,
   onRemoveSlot,
   snapToGrid = false,
-  snapGridSize = 10,
+  snapGridSize = 4,
   smartSnapOptions = {
     enabled: true,
-    threshold: 10,
+    threshold: 4,
     snapToEdges: true,
     snapToCenter: true,
     snapToObjects: true,
@@ -51,7 +51,10 @@ export function NativeSelectionOverlay({
   pendingAutoDrag,
   onPendingAutoDragConsumed
 }: NativeSelectionOverlayProps) {
-  // Only handle single selection for now
+  if (selectedSlots.length !== 1) {
+    return null
+  }
+
   const selectedSlot = selectedSlots[0]
   const frame = selectedSlot ? frames[selectedSlot] : null
   const slot = selectedSlot ? slots.find(s => s.name === selectedSlot) : null
@@ -77,6 +80,10 @@ export function NativeSelectionOverlay({
   const [snapState, setSnapState] = useState<SnapState>({})
 
   const { x = 0, y = 0, width = 0, height = 0, rotation = 0 } = frame || {}
+
+  if (!frame || !slot) {
+    return null
+  }
 
   // Get current zoom/scale from CTM to make handles viewport-relative
   const ctm = svgElement.getScreenCTM()
@@ -110,6 +117,16 @@ export function NativeSelectionOverlay({
     if (!snapToGrid) return value
     return Math.round(value / snapGridSize) * snapGridSize
   }, [snapToGrid, snapGridSize])
+
+  const snapFrames = React.useMemo(() => {
+    const filtered: Record<string, Frame> = {}
+    Object.entries(frames).forEach(([name, otherFrame]) => {
+      if (name !== selectedSlot && otherFrame) {
+        filtered[name] = otherFrame
+      }
+    })
+    return filtered
+  }, [frames, selectedSlot])
 
   // Start dragging
   const beginDrag = useCallback((handle: DragHandle, clientX: number, clientY: number) => {
@@ -166,10 +183,11 @@ export function NativeSelectionOverlay({
     // Medium (0.5-2 px/ms): reduced threshold
     // Fast (> 2 px/ms): nearly zero threshold (no snapping)
     const velocityFactor = Math.max(0, 1 - Math.min(1, velocity / 2))
-    const adjustedSnapOptions = {
+    const speedAdjustedOptions = {
       ...smartSnapOptions,
       threshold: smartSnapOptions.threshold * velocityFactor
     }
+    const disableSmartSnap = !smartSnapOptions.enabled || e.metaKey || e.ctrlKey
 
     const { originalFrame } = dragState
 
@@ -184,12 +202,19 @@ export function NativeSelectionOverlay({
         newY = applySnap(newY)
       }
 
+      if (disableSmartSnap) {
+        setActiveGuides([])
+        setSnapState({})
+        onFrameChange(selectedSlot, { x: newX, y: newY })
+        return
+      }
+
       // Apply smart snapping with velocity-adjusted threshold
       const snapResult = calculateSmartSnap(
         { x: newX, y: newY, width: originalFrame.width, height: originalFrame.height },
-        frames,
+        snapFrames,
         viewBox,
-        adjustedSnapOptions,
+        speedAdjustedOptions,
         'move',
         snapState,
         scale
@@ -256,12 +281,26 @@ export function NativeSelectionOverlay({
         newHeight = applySnap(newHeight)
       }
 
+      if (disableSmartSnap) {
+        setActiveGuides([])
+        setSnapState({})
+        if (newWidth > 10 && newHeight > 10) {
+          onFrameChange(selectedSlot, {
+            x: newX,
+            y: newY,
+            width: newWidth,
+            height: newHeight
+          })
+        }
+        return
+      }
+
       // Apply smart snapping with velocity-adjusted threshold
       const snapResult = calculateSmartSnap(
         { x: newX, y: newY, width: newWidth, height: newHeight },
-        frames,
+        snapFrames,
         viewBox,
-        adjustedSnapOptions,
+        speedAdjustedOptions,
         dragState.handle as 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw',
         snapState,
         scale
@@ -313,7 +352,7 @@ export function NativeSelectionOverlay({
         rotation: angle + 90 // Offset by 90° so 0° points up
       })
     }
-  }, [dragState, screenToSVG, selectedSlot, onFrameChange, snapToGrid, applySnap, frames, viewBox, smartSnapOptions, scale, snapState])
+  }, [dragState, screenToSVG, selectedSlot, onFrameChange, snapToGrid, applySnap, snapFrames, viewBox, smartSnapOptions, scale, snapState])
 
   // Mouse up handler
   const handleMouseUp = useCallback(() => {
@@ -391,6 +430,38 @@ export function NativeSelectionOverlay({
 
   // Check if this is a text or button slot (editable)
   const isTextSlot = slot && (slot.type === 'text' || slot.type === 'button')
+  const isShapeSlot = slot?.type === 'shape'
+
+  const createTextSlotInsideShape = useCallback(() => {
+    if (!isShapeSlot || !frame) return
+
+    const paddingX = Math.min(24, frame.width * 0.1)
+    const paddingY = Math.min(24, frame.height * 0.1)
+    const textWidth = Math.max(frame.width - paddingX * 2, frame.width * 0.6)
+    const textHeight = Math.max(frame.height - paddingY * 2, frame.height * 0.6)
+    const textFrame = {
+      x: frame.x + (frame.width - textWidth) / 2,
+      y: frame.y + (frame.height - textHeight) / 2,
+      width: textWidth,
+      height: textHeight
+    }
+
+    const store = useEditorStore.getState()
+    store.addSlot('text', {
+      textStyle: 'body',
+      frame: textFrame,
+      textOverrides: {
+        textAlign: 'center',
+        color: '#111827',
+        fill: '#111827'
+      }
+    })
+
+    const newSlotName = useEditorStore.getState().selectedSlots[0]
+    if (newSlotName) {
+      startEditing(newSlotName)
+    }
+  }, [frame, isShapeSlot, startEditing])
 
   console.log('[NativeSelectionOverlay] RENDERING', {
     selectedSlot,
@@ -409,27 +480,35 @@ export function NativeSelectionOverlay({
       locked: slot?.locked
     })
 
-    if (isTextSlot && !slot.locked) {
+    if (!slot.locked) {
       const now = Date.now()
       const timeSinceLastClick = now - lastClickTimeRef.current
       lastClickTimeRef.current = now
 
       console.log('[NativeSelectionOverlay] Time since last click:', timeSinceLastClick, 'ms')
 
-      // Double-click detection (within 300ms)
       if (timeSinceLastClick < 300) {
-        console.log('[NativeSelectionOverlay] DOUBLE-CLICK DETECTED - Starting edit mode')
         e.stopPropagation()
         e.preventDefault()
-        startEditing(selectedSlot)
-        return
+
+        if (isTextSlot) {
+          console.log('[NativeSelectionOverlay] DOUBLE-CLICK DETECTED - Starting edit mode')
+          startEditing(selectedSlot)
+          return
+        }
+
+        if (isShapeSlot) {
+          console.log('[NativeSelectionOverlay] DOUBLE-CLICK DETECTED - Inserting text into shape')
+          createTextSlotInsideShape()
+          return
+        }
       }
     }
 
     // Single click or non-text slot - proceed with drag
     console.log('[NativeSelectionOverlay] Single click - proceeding with drag')
     handleMouseDown('move', e)
-  }, [isTextSlot, slot, selectedSlot, startEditing, handleMouseDown])
+  }, [isTextSlot, isShapeSlot, slot, selectedSlot, startEditing, handleMouseDown, createTextSlotInsideShape])
 
   return (
     <g className="selection-overlay">

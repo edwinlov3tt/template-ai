@@ -61,6 +61,9 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
   // Get editing state from store
   const editingSlot = useEditorStore(state => state.editingSlot)
   const startEditing = useEditorStore(state => state.startEditing)
+  const setCanvasSelected = useEditorStore(state => state.setCanvasSelected)
+  const hoveredSlot = useEditorStore(state => state.hoveredSlot)
+  const setHoveredSlot = useEditorStore(state => state.setHoveredSlot)
 
   // Support both object refs and callback refs from parents
   useEffect(() => {
@@ -93,6 +96,12 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
       pendingDragCleanupRef.current?.()
     }
   }, [])
+
+  useEffect(() => {
+    return () => {
+      setHoveredSlot(null)
+    }
+  }, [setHoveredSlot])
 
   // Keyboard shortcuts for text editing
   useEffect(() => {
@@ -167,9 +176,11 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
       if (page?.id) {
         onRequestPageFocus?.(page.id)
       }
+      setHoveredSlot(null)
       onSelectionChange([])
+      setCanvasSelected(true)
     }
-  }, [onSelectionChange, onRequestPageFocus, page?.id])
+  }, [onSelectionChange, onRequestPageFocus, page?.id, setHoveredSlot, setCanvasSelected])
 
   // Handle slot click with drag threshold
   const handleSlotPointerDown = useCallback((slotName: string, event: React.MouseEvent<SVGGElement>) => {
@@ -187,6 +198,8 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
 
     // Suppress background click
     suppressBackgroundClickRef.current = true
+    setHoveredSlot(null)
+    setCanvasSelected(false)
 
     // Focus page if needed
     if (page?.id) {
@@ -246,7 +259,7 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
 
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
-  }, [selectedSlots, onSelectionChange, onRequestPageFocus, page])
+  }, [selectedSlots, onSelectionChange, onRequestPageFocus, page, setHoveredSlot, setCanvasSelected])
 
   if (!template || !page) {
     return null
@@ -261,6 +274,8 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
 
   // Sort slots by z-index (lower z renders first, higher z on top)
   const sortedSlots = [...page.slots].sort((a, b) => (a.z || 0) - (b.z || 0))
+  const hoverScale = internalRef.current?.getScreenCTM()?.a || 1
+  const hoverStrokeWidth = 2 / hoverScale
 
   return (
     <svg
@@ -276,7 +291,8 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
         height: '100%',
         userSelect: 'none',
         touchAction: 'none',
-        overflow: 'visible'
+        overflow: 'visible',
+        background: page.backgroundColor || '#ffffff'
       }}
       className="svg-stage-v2"
     >
@@ -322,6 +338,20 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
             />
           )
         })}
+
+        {hoveredSlot && !selectedSlots.includes(hoveredSlot) && frames[hoveredSlot] && (
+          <rect
+            x={frames[hoveredSlot].x}
+            y={frames[hoveredSlot].y}
+            width={frames[hoveredSlot].width}
+            height={frames[hoveredSlot].height}
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth={hoverStrokeWidth}
+            pointerEvents="none"
+            opacity={0.9}
+          />
+        )}
       </g>
 
       {/* Selection overlay - rendered outside clipped area (hidden when editing) */}

@@ -319,8 +319,17 @@ Before production release:
 
 Total: **6 files** (1 new), ~120 lines of code including CORS handling
 
+## Related Fixes
+
+### ViewBox Distortion Issue ✅ FIXED
+- **Issue**: Exports at different aspect ratios (16:9, 4:5) showed distorted content
+- **Root Cause**: Template baseViewBox (1080×1080) didn't match canvas dimensions (1920×1080, etc.)
+- **Solution**: Set export viewBox to match actual canvas dimensions, not baseViewBox
+- **Details**: See [EXPORT_VIEWBOX_FIX.md](./EXPORT_VIEWBOX_FIX.md) for full technical analysis
+
 ## Related Documentation
 
 - [EXPORT_FEATURE.md](./EXPORT_FEATURE.md) - Full export feature documentation
+- [EXPORT_VIEWBOX_FIX.md](./EXPORT_VIEWBOX_FIX.md) - ViewBox distortion fix details
 - [CANVAS_ARCHITECTURE.md](./CANVAS_ARCHITECTURE.md) - Canvas system overview
 - Canvg Docs: https://github.com/canvg/canvg

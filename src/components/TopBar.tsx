@@ -1,12 +1,16 @@
-import React from 'react'
-import { Button, Tooltip } from 'antd'
+import React, { useState } from 'react'
+import { Button, Tooltip, Dropdown } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   UndoOutlined,
   RedoOutlined,
   BorderOutlined,
   SaveOutlined,
-  SettingOutlined
+  SettingOutlined,
+  DownOutlined
 } from '@ant-design/icons'
+import { SaveTemplateDialog } from './admin/SaveTemplateDialog'
+import { useEditorStore } from '../state/editorStore'
 
 interface TopBarProps {
   onFileClick?: () => void
@@ -45,6 +49,10 @@ export function TopBar({
 }: TopBarProps) {
   const [isEditing, setIsEditing] = React.useState(false)
   const [editValue, setEditValue] = React.useState(templateName)
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+  const template = useEditorStore(state => state.template)
+
+  const isAdminMode = import.meta.env.VITE_ADMIN_MODE === 'true'
 
   const handleBlur = () => {
     setIsEditing(false)
@@ -69,6 +77,21 @@ export function TopBar({
   React.useEffect(() => {
     setEditValue(templateName)
   }, [templateName])
+
+  const saveMenuItems: MenuProps['items'] = [
+    {
+      key: 'save',
+      label: 'Save',
+      icon: <SaveOutlined />,
+      onClick: onSave
+    },
+    {
+      key: 'save-template',
+      label: 'Save as Template',
+      onClick: () => setSaveDialogOpen(true)
+    }
+  ]
+
   return (
     <div style={{
       height: '48px',
@@ -237,20 +260,49 @@ export function TopBar({
         >
           Export
         </Button>
-        <Button
-          type="primary"
-          icon={<SaveOutlined />}
-          onClick={onSave}
-          disabled={!hasTemplate}
-          style={{
-            background: !hasTemplate ? '#6b7db8' : undefined,
-            borderColor: !hasTemplate ? '#6b7db8' : undefined,
-            color: !hasTemplate ? '#ffffff' : undefined
-          }}
-        >
-          Save
-        </Button>
+
+        {/* Save button with dropdown in admin mode */}
+        {isAdminMode && hasTemplate ? (
+          <Dropdown menu={{ items: saveMenuItems }} trigger={['click']}>
+            <Button
+              type="primary"
+              disabled={!hasTemplate}
+              style={{
+                background: !hasTemplate ? '#6b7db8' : undefined,
+                borderColor: !hasTemplate ? '#6b7db8' : undefined,
+                color: !hasTemplate ? '#ffffff' : undefined
+              }}
+            >
+              <SaveOutlined />
+              Save
+              <DownOutlined style={{ fontSize: '10px', marginLeft: '4px' }} />
+            </Button>
+          </Dropdown>
+        ) : (
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={onSave}
+            disabled={!hasTemplate}
+            style={{
+              background: !hasTemplate ? '#6b7db8' : undefined,
+              borderColor: !hasTemplate ? '#6b7db8' : undefined,
+              color: !hasTemplate ? '#ffffff' : undefined
+            }}
+          >
+            Save
+          </Button>
+        )}
       </div>
+
+      {/* Save Template Dialog */}
+      {isAdminMode && template && (
+        <SaveTemplateDialog
+          isOpen={saveDialogOpen}
+          onClose={() => setSaveDialogOpen(false)}
+          template={template}
+        />
+      )}
     </div>
   )
 }

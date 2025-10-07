@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Lock, Unlock, Eye, EyeOff, GripVertical, MoreVertical, Edit3, FileText, Copy, Trash2 } from 'lucide-react'
 import { Tooltip } from 'antd'
+import { Reorder, motion } from 'framer-motion'
 import type { Template, Slot } from '../schema/types'
 import { checkTemplateContrast, getContrastBadgeColor, getContrastBadgeLabel, type LayerContrastInfo } from '../accessibility/contrastChecker'
 import { ContrastFixModal } from './ContrastFixModal'
@@ -10,6 +11,7 @@ import { getDuplicateShortcut, getLockShortcut, getDeleteShortcut } from '../uti
 interface RightRailProps {
   template: Template | null
   selectedLayer?: string | null
+  selectedSlots?: string[]
   onUpdateSlot?: (slotId: string, updates: Partial<Slot>) => void
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
@@ -18,7 +20,7 @@ interface RightRailProps {
   onReorderSlots?: (slotNames: string[]) => void
 }
 
-export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, onReorderSlots }: RightRailProps) {
+export function RightRail({ template, selectedLayer, selectedSlots, onUpdateSlot, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, onReorderSlots }: RightRailProps) {
   const [fixModalOpen, setFixModalOpen] = useState(false)
   const [fixModalData, setFixModalData] = useState<LayerContrastInfo | null>(null)
 
@@ -87,9 +89,10 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
 
         {/* Content */}
         {!isCollapsed && (
-          <div style={{ flex: 1, overflow: 'auto' }}>
+          <div style={{ flex: 1, overflow: 'auto', overflowX: 'hidden' }}>
             <LayersPanel
               template={template}
+              selectedSlots={selectedSlots || []}
               onContrastBadgeClick={(info) => {
                 setFixModalData(info)
                 setFixModalOpen(true)
@@ -121,6 +124,7 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
 
 interface LayersPanelProps {
   template: Template | null
+  selectedSlots: string[]
   onContrastBadgeClick?: (info: LayerContrastInfo) => void
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
@@ -129,13 +133,7 @@ interface LayersPanelProps {
   onReorderSlots?: (slotNames: string[]) => void
 }
 
-function LayersPanel({ template, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, onReorderSlots }: LayersPanelProps) {
-  const [draggedSlot, setDraggedSlot] = useState<string | null>(null)
-  const [dropIndicator, setDropIndicator] = useState<{
-    slotName: string
-    position: 'above' | 'below'
-  } | null>(null)
-
+function LayersPanel({ template, selectedSlots, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, onReorderSlots }: LayersPanelProps) {
   if (!template) {
     return (
       <div style={{
@@ -158,110 +156,6 @@ function LayersPanel({ template, onContrastBadgeClick, onDuplicateSlot, onToggle
   }, [template])
 
   const showPageHeaders = template.pages.length > 1
-
-  const handleDragStart = (e: React.DragEvent, slotName: string, element: HTMLElement) => {
-    setDraggedSlot(slotName)
-
-    // Create custom drag preview
-    const clone = element.cloneNode(true) as HTMLElement
-    clone.style.position = 'absolute'
-    clone.style.top = '-1000px'
-    clone.style.width = `${element.offsetWidth}px`
-    clone.style.opacity = '0.9'
-    clone.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)'
-    clone.style.borderRadius = '4px'
-    document.body.appendChild(clone)
-
-    // Get cursor position relative to element
-    const rect = element.getBoundingClientRect()
-    const offsetX = e.clientX - rect.left
-    const offsetY = e.clientY - rect.top
-
-    e.dataTransfer.setDragImage(clone, offsetX, offsetY)
-
-    // Remove clone after drag starts
-    setTimeout(() => {
-      if (document.body.contains(clone)) {
-        document.body.removeChild(clone)
-      }
-    }, 0)
-  }
-
-  const handleDragOver = (e: React.DragEvent, slotName: string, element: HTMLElement) => {
-    e.preventDefault()
-    if (!draggedSlot || draggedSlot === slotName) {
-      setDropIndicator(null)
-      return
-    }
-
-    // Calculate position based on mouse Y relative to element bounds
-    const rect = element.getBoundingClientRect()
-    const relativeY = e.clientY - rect.top
-    const threshold = rect.height * 0.5
-
-    // Determine if cursor is in top or bottom half
-    const position = relativeY < threshold ? 'above' : 'below'
-
-    setDropIndicator({ slotName, position })
-  }
-
-  const handleDrop = (pageId: string) => {
-    if (!draggedSlot || !dropIndicator || !onReorderSlots) {
-      setDraggedSlot(null)
-      setDropIndicator(null)
-      return
-    }
-
-    // Find the page and slots
-    const page = template.pages.find(p => p.id === pageId)
-    if (!page) {
-      setDraggedSlot(null)
-      setDropIndicator(null)
-      return
-    }
-
-    const sortedSlots = [...page.slots].sort((a, b) => b.z - a.z)
-    const draggedIndex = sortedSlots.findIndex(s => s.name === draggedSlot)
-    let targetIndex = sortedSlots.findIndex(s => s.name === dropIndicator.slotName)
-
-    if (draggedIndex === -1 || targetIndex === -1) {
-      setDraggedSlot(null)
-      setDropIndicator(null)
-      return
-    }
-
-    // Calculate final insert position
-    let insertPosition = targetIndex
-    if (dropIndicator.position === 'below') {
-      insertPosition++
-    }
-
-    // Don't reorder if dropping in the exact same position
-    if (draggedIndex === insertPosition || (draggedIndex + 1 === insertPosition && dropIndicator.position === 'above')) {
-      setDraggedSlot(null)
-      setDropIndicator(null)
-      return
-    }
-
-    // Reorder the array
-    const newOrder = [...sortedSlots]
-    const [removed] = newOrder.splice(draggedIndex, 1)
-
-    // Adjust insert position if we removed an item before it
-    const adjustedInsertPosition = insertPosition > draggedIndex ? insertPosition - 1 : insertPosition
-    newOrder.splice(adjustedInsertPosition, 0, removed)
-
-    // Call reorder with new slot names order
-    onReorderSlots(newOrder.map(s => s.name))
-
-    setDraggedSlot(null)
-    setDropIndicator(null)
-  }
-
-  const handleDragEnd = () => {
-    setDraggedSlot(null)
-    setDropIndicator(null)
-  }
 
   return (
     <div style={{ padding: '12px 12px 12px 12px' }}>
@@ -287,42 +181,75 @@ function LayersPanel({ template, onContrastBadgeClick, onDuplicateSlot, onToggle
                 </div>
               )}
 
-              {/* Slots for this page */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', position: 'relative' }}>
-                {sortedSlots.map((slot) => (
-                  <LayerItem
-                    key={slot.name}
-                    slotId={slot.name}
-                    slot={slot}
-                    pageId={page.id}
-                    contrastInfo={contrastInfo.get(slot.name)}
-                    onContrastBadgeClick={onContrastBadgeClick}
-                    onDuplicateSlot={onDuplicateSlot}
-                    onToggleLockSlot={onToggleLockSlot}
-                    onRemoveSlot={onRemoveSlot}
-                    onSelectSlot={onSelectSlot}
-                    isDragging={draggedSlot === slot.name}
-                    dropIndicator={dropIndicator?.slotName === slot.name ? dropIndicator : null}
-                    onDragStart={handleDragStart}
-                    onDragOver={handleDragOver}
-                    onDrop={() => handleDrop(page.id)}
-                    onDragEnd={handleDragEnd}
-                  />
-                ))}
-
-                {/* Empty state for page with no slots */}
-                {sortedSlots.length === 0 && (
-                  <div style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    color: '#9ca3af',
-                    fontSize: '12px',
-                    fontStyle: 'italic'
-                  }}>
-                    No layers on this page
-                  </div>
-                )}
-              </div>
+              {/* Slots for this page - Reorder.Group for smooth drag-and-drop */}
+              {sortedSlots.length === 0 ? (
+                <div style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  color: '#9ca3af',
+                  fontSize: '12px',
+                  fontStyle: 'italic'
+                }}>
+                  No layers on this page
+                </div>
+              ) : (
+                <Reorder.Group
+                  axis="y"
+                  values={sortedSlots}
+                  onReorder={(newOrder) => {
+                    if (onReorderSlots) {
+                      onReorderSlots(newOrder.map(s => s.name))
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    position: 'relative',
+                    listStyle: 'none',
+                    padding: 0,
+                    margin: 0
+                  }}
+                >
+                  {sortedSlots.map((slot) => (
+                    <Reorder.Item
+                      key={slot.name}
+                      value={slot}
+                      layout
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      transition={{
+                        layout: { type: 'spring', stiffness: 350, damping: 25 },
+                        opacity: { duration: 0.2 }
+                      }}
+                      whileDrag={{
+                        scale: 1.03,
+                        zIndex: 1000,
+                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+                        cursor: 'grabbing'
+                      }}
+                      style={{
+                        position: 'relative',
+                        listStyle: 'none'
+                      }}
+                    >
+                      <LayerItem
+                        slotId={slot.name}
+                        slot={slot}
+                        pageId={page.id}
+                        selectedSlots={selectedSlots}
+                        contrastInfo={contrastInfo.get(slot.name)}
+                        onContrastBadgeClick={onContrastBadgeClick}
+                        onDuplicateSlot={onDuplicateSlot}
+                        onToggleLockSlot={onToggleLockSlot}
+                        onRemoveSlot={onRemoveSlot}
+                        onSelectSlot={onSelectSlot}
+                      />
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
+              )}
             </div>
           )
         })}
@@ -335,26 +262,22 @@ interface LayerItemProps {
   slotId: string
   slot: Slot
   pageId: string
+  selectedSlots: string[]
   contrastInfo?: LayerContrastInfo
   onContrastBadgeClick?: (info: LayerContrastInfo) => void
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
   onRemoveSlot?: (slotName: string) => void
   onSelectSlot?: (slotName: string, pageId: string) => void
-  isDragging?: boolean
-  dropIndicator?: { slotName: string; position: 'above' | 'below' } | null
-  onDragStart?: (e: React.DragEvent, slotName: string, element: HTMLElement) => void
-  onDragOver?: (e: React.DragEvent, slotName: string, element: HTMLElement) => void
-  onDrop?: () => void
-  onDragEnd?: () => void
 }
 
-function LayerItem({ slotId, slot, pageId, contrastInfo, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, isDragging, dropIndicator, onDragStart, onDragOver, onDrop, onDragEnd }: LayerItemProps) {
+function LayerItem({ slotId, slot, pageId, selectedSlots, contrastInfo, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot }: LayerItemProps) {
   const [visible, setVisible] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 })
   const menuButtonRef = React.useRef<HTMLButtonElement>(null)
-  const itemRef = React.useRef<HTMLDivElement>(null)
+
+  const isSelected = selectedSlots.includes(slot.name)
 
   const getIcon = () => {
     switch (slot.type) {
@@ -372,91 +295,40 @@ function LayerItem({ slotId, slot, pageId, contrastInfo, onContrastBadgeClick, o
   }
 
   return (
-    <div
-      ref={itemRef}
+    <motion.div
       onClick={() => {
         if (onSelectSlot) {
           onSelectSlot(slot.name, pageId)
         }
       }}
-      onDragOver={(e) => {
-        if (onDragOver && itemRef.current) {
-          onDragOver(e, slot.name, itemRef.current)
-        }
-      }}
-      onDrop={(e) => {
-        e.preventDefault()
-        if (onDrop) onDrop()
-      }}
+      whileHover={{ scale: 1.01 }}
+      transition={{ duration: 0.15 }}
       style={{
-        background: '#f9fafb',
-        border: '1px solid #e5e7eb',
+        background: isSelected ? '#dbeafe' : '#f9fafb',
+        border: isSelected ? '1px solid #3b82f6' : '1px solid #e5e7eb',
         borderRadius: '4px',
         padding: '6px 8px',
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
         cursor: 'pointer',
-        transition: 'opacity 0.15s, transform 0.2s ease',
-        position: 'relative',
-        opacity: isDragging ? 0.4 : 1,
-        transform: 'translateY(0)'
+        position: 'relative'
       }}
     >
-      {/* Insertion indicator - above */}
-      {dropIndicator && dropIndicator.position === 'above' && (
-        <div style={{
-          position: 'absolute',
-          top: '-2.5px',
-          left: '8px',
-          right: '8px',
-          height: '3px',
-          background: '#6366f1',
-          boxShadow: '0 0 6px rgba(99, 102, 241, 0.6)',
-          borderRadius: '1.5px',
-          zIndex: 100,
-          pointerEvents: 'none'
-        }} />
-      )}
-
-      {/* Insertion indicator - below */}
-      {dropIndicator && dropIndicator.position === 'below' && (
-        <div style={{
-          position: 'absolute',
-          bottom: '-2.5px',
-          left: '8px',
-          right: '8px',
-          height: '3px',
-          background: '#6366f1',
-          boxShadow: '0 0 6px rgba(99, 102, 241, 0.6)',
-          borderRadius: '1.5px',
-          zIndex: 100,
-          pointerEvents: 'none'
-        }} />
-      )}
 
       {/* Drag Handle */}
-      <div
-        draggable
-        onDragStart={(e) => {
-          e.stopPropagation()
-          if (onDragStart && itemRef.current) {
-            onDragStart(e, slot.name, itemRef.current)
-          }
-        }}
-        onDragEnd={(e) => {
-          e.stopPropagation()
-          if (onDragEnd) onDragEnd()
-        }}
+      <motion.div
+        whileHover={{ color: '#3b82f6', scale: 1.1 }}
+        transition={{ duration: 0.15 }}
         style={{
           color: '#d1d5db',
           display: 'flex',
           alignItems: 'center',
-          cursor: isDragging ? 'grabbing' : 'grab'
+          cursor: 'grab'
         }}
       >
         <GripVertical size={14} />
-      </div>
+      </motion.div>
 
       {/* Type Icon */}
       <div style={{
@@ -652,7 +524,7 @@ function LayerItem({ slotId, slot, pageId, contrastInfo, onContrastBadgeClick, o
           </div>
         </>
       )}
-    </div>
+    </motion.div>
   )
 }
 

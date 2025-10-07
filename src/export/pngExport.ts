@@ -119,30 +119,41 @@ export async function exportToPng(
   // Clone the SVG to avoid modifying the original
   const svgClone = svgElement.cloneNode(true) as SVGSVGElement
 
-  // Get the viewBox - this defines the coordinate system
-  const viewBox = svgElement.getAttribute('viewBox')
-  console.log('[exportToPng] Original viewBox:', viewBox)
+  // Get the original viewBox and dimensions
+  const originalViewBox = svgElement.getAttribute('viewBox')
+  const originalWidth = svgElement.getAttribute('width')
+  const originalHeight = svgElement.getAttribute('height')
 
-  // CRITICAL: The export dimensions must match the canvas size
-  const exportWidth = options.width * options.multiplier
-  const exportHeight = options.height * options.multiplier
+  console.log('[exportToPng] Original SVG:', {
+    viewBox: originalViewBox,
+    width: originalWidth,
+    height: originalHeight
+  })
 
-  svgClone.setAttribute('width', String(exportWidth))
-  svgClone.setAttribute('height', String(exportHeight))
+  // CRITICAL FIX: Set viewBox to match the ACTUAL canvas dimensions
+  // This prevents distortion when exporting different aspect ratios
+  // The content is positioned in canvas coordinate space, not baseViewBox space
+  const exportViewBoxWidth = options.width
+  const exportViewBoxHeight = options.height
+  const exportRenderWidth = options.width * options.multiplier
+  const exportRenderHeight = options.height * options.multiplier
 
-  // KEEP the original viewBox to preserve coordinate system and content positioning
-  // The viewBox defines where content is located in the coordinate space
-  if (viewBox) {
-    svgClone.setAttribute('viewBox', viewBox)
-    console.log('[exportToPng] Preserving original viewBox:', viewBox)
-  } else {
-    // Fallback if no viewBox exists
-    svgClone.setAttribute('viewBox', `0 0 ${options.width} ${options.height}`)
-  }
+  console.log('[exportToPng] Export config:', {
+    viewBox: `0 0 ${exportViewBoxWidth} ${exportViewBoxHeight}`,
+    renderDimensions: `${exportRenderWidth}x${exportRenderHeight}`,
+    multiplier: options.multiplier
+  })
 
-  // CRITICAL: Use 'none' to prevent scaling/cropping
-  // This ensures the full canvas is exported, not auto-fitted to content
-  svgClone.setAttribute('preserveAspectRatio', 'none')
+  // Set the viewBox to match canvas dimensions (not baseViewBox)
+  svgClone.setAttribute('viewBox', `0 0 ${exportViewBoxWidth} ${exportViewBoxHeight}`)
+
+  // Set render dimensions (multiplied for high-res export)
+  svgClone.setAttribute('width', String(exportRenderWidth))
+  svgClone.setAttribute('height', String(exportRenderHeight))
+
+  // CRITICAL: Remove preserveAspectRatio='none' - it distorts the viewBox
+  // Use default behavior (xMidYMid meet) or explicitly set to avoid distortion
+  svgClone.removeAttribute('preserveAspectRatio')
 
   // Serialize SVG to string
   const serializer = new XMLSerializer()

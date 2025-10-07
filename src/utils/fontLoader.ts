@@ -39,13 +39,6 @@ class FontLoader {
     '-apple-system',
     'blinkmacsystemfont',
     'segoe ui',
-    'roboto',
-    'oxygen',
-    'ubuntu',
-    'cantarell',
-    'fira sans',
-    'droid sans',
-    'helvetica neue',
     'sans-serif',
     'serif',
     'monospace'
@@ -55,9 +48,15 @@ class FontLoader {
    * Normalize font family name (remove quotes, lowercase, trim)
    */
   private normalizeFontFamily(family: string): string {
+    return this.sanitizeFontFamily(family).toLowerCase()
+  }
+
+  /**
+   * Sanitize font family name (remove quotes, trim whitespace)
+   */
+  private sanitizeFontFamily(family: string): string {
     return family
       .replace(/['"]/g, '')
-      .toLowerCase()
       .trim()
   }
 
@@ -66,7 +65,7 @@ class FontLoader {
    */
   private isWebSafeFont(family: string): boolean {
     const normalized = this.normalizeFontFamily(family)
-    return this.webSafeFonts.has(normalized)
+    return normalized ? this.webSafeFonts.has(normalized) : false
   }
 
   /**
@@ -95,32 +94,47 @@ class FontLoader {
   }
 
   /**
+   * Normalize weight values to the nearest 100 within Google Fonts range
+   */
+  private normalizeFontWeightValue(weight: number): number {
+    const parsedWeight = this.parseFontWeight(weight)
+    const numericWeight = Number.isFinite(parsedWeight) ? Math.round(parsedWeight) : 400
+    const clamped = Math.min(Math.max(numericWeight, 100), 900)
+    return Math.round(clamped / 100) * 100
+  }
+
+  /**
    * Load a single font from Google Fonts
    */
   async loadFont(family: string, weight: number = 400): Promise<boolean> {
-    // Skip web-safe fonts
-    if (this.isWebSafeFont(family)) {
-      // console.log(`[FontLoader] Skipping web-safe font: ${family}`)
+    const sanitizedFamily = this.sanitizeFontFamily(family)
+    if (!sanitizedFamily) {
+      return false
+    }
+
+    // Skip fonts that are already available (system or preloaded)
+    if (this.isWebSafeFont(sanitizedFamily)) {
       return true
     }
 
-    const normalized = this.normalizeFontFamily(family)
+    const normalized = this.normalizeFontFamily(sanitizedFamily)
+    const normalizedWeight = this.normalizeFontWeightValue(weight)
 
-    // Check if already loaded
+    // Check if already loaded with requested weight
     const existing = this.loadedFonts.get(normalized)
-    if (existing && existing.weights.includes(weight)) {
+    if (existing && existing.weights.includes(normalizedWeight)) {
       return true
     }
 
     // Add to loaded fonts registry
     if (!existing) {
       this.loadedFonts.set(normalized, {
-        family: normalized,
-        weights: [weight],
+        family: sanitizedFamily,
+        weights: [normalizedWeight],
         loaded: false
       })
-    } else {
-      existing.weights.push(weight)
+    } else if (!existing.weights.includes(normalizedWeight)) {
+      existing.weights.push(normalizedWeight)
     }
 
     // Rebuild Google Fonts URL with all fonts
@@ -128,23 +142,19 @@ class FontLoader {
 
     // Wait for font to load via CSS (Google Fonts link tag)
     try {
-      // Use document.fonts.load() to check when the font is ready
-      // This works with fonts loaded via <link> tags
-      await document.fonts.load(`${weight} 16px "${family}"`)
-
-      if (existing) {
-        existing.loaded = true
-      } else {
-        const current = this.loadedFonts.get(normalized)
-        if (current) current.loaded = true
+      if (typeof document !== 'undefined' && document.fonts?.load) {
+        await document.fonts.load(`${normalizedWeight} 16px "${sanitizedFamily}"`)
       }
 
-      // console.log(`[FontLoader] Loaded: ${family} (${weight})`)
+      const current = this.loadedFonts.get(normalized)
+      if (current) {
+        current.loaded = true
+      }
+
       return true
     } catch (error) {
       // Font loading via CSS might fail silently - that's okay
       // The font will still be requested by the browser when needed
-      // console.warn(`[FontLoader] Could not verify load for ${family} (${weight}):`, error)
       return true // Return true anyway since CSS link will handle it
     }
   }
@@ -206,13 +216,13 @@ class FontLoader {
 
     allSlots.forEach((slot: any) => {
       if (slot.type === 'text' || slot.type === 'button') {
-        const family = slot.fontFamily || 'Inter'
-        const weight = this.parseFontWeight(slot.fontWeight)
-        const key = `${family}-${weight}`
+        const familyName = this.sanitizeFontFamily(slot.fontFamily || 'Inter')
+        const weight = this.normalizeFontWeightValue(this.parseFontWeight(slot.fontWeight))
+        const key = `${this.normalizeFontFamily(familyName)}-${weight}`
 
         if (!seen.has(key)) {
           seen.add(key)
-          fonts.push({ family, weight })
+          fonts.push({ family: familyName, weight })
         }
       }
     })

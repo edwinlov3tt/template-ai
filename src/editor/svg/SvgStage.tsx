@@ -58,6 +58,9 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
 
   // Get editing state and actions from store
   const { editingSlot, startEditing } = useEditorStore()
+  const hoveredSlot = useEditorStore(state => state.hoveredSlot)
+  const setHoveredSlot = useEditorStore(state => state.setHoveredSlot)
+  const setCanvasSelected = useEditorStore(state => state.setCanvasSelected)
 
   // Keyboard shortcuts for text editing
   useEffect(() => {
@@ -102,6 +105,12 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      setHoveredSlot(null)
+    }
+  }, [setHoveredSlot])
+
   // All hooks must be called before any conditional returns
   const handleBackgroundClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (suppressBackgroundClickRef.current) {
@@ -113,13 +122,13 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
       if (page?.id) {
         onRequestPageFocus?.(page.id)
       }
+      setHoveredSlot(null)
       onSelectionChange([])
+      setCanvasSelected(true)
     }
-  }, [onSelectionChange, onRequestPageFocus, page?.id])
+  }, [onSelectionChange, onRequestPageFocus, page?.id, setHoveredSlot, setCanvasSelected])
 
   const handleSlotPointerDown = useCallback((slotName: string, event: React.MouseEvent<SVGGElement>) => {
-    console.log('[SvgStage] handleSlotPointerDown called for:', slotName, 'button:', event.button)
-
     if (event.button !== 0) return
 
     event.stopPropagation()
@@ -127,6 +136,8 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
 
     pendingDragCleanupRef.current?.()
     suppressBackgroundClickRef.current = true
+    setHoveredSlot(null)
+    setCanvasSelected(false)
 
     if (page?.id) {
       onRequestPageFocus?.(page.id)
@@ -135,21 +146,16 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
     if (event.shiftKey) {
       if (selectedSlots.includes(slotName)) {
         const newSelection = selectedSlots.filter(s => s !== slotName)
-        console.log('[SvgStage] Shift-deselect, new selection:', newSelection)
         onSelectionChange(newSelection)
       } else {
         const newSelection = [...selectedSlots, slotName]
-        console.log('[SvgStage] Shift-select, new selection:', newSelection)
         onSelectionChange(newSelection)
       }
       return
     }
 
     if (!(selectedSlots.length === 1 && selectedSlots[0] === slotName)) {
-      console.log('[SvgStage] Setting selection to:', [slotName])
       onSelectionChange([slotName])
-    } else {
-      console.log('[SvgStage] Slot already selected:', slotName)
     }
 
     const candidate = {
@@ -195,7 +201,13 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
 
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
-  }, [selectedSlots, onSelectionChange, page?.id, onRequestPageFocus])
+
+    // Allow the next distinct background click to clear selection
+    // after the current click cycle finishes propagating.
+    requestAnimationFrame(() => {
+      suppressBackgroundClickRef.current = false
+    })
+  }, [selectedSlots, onSelectionChange, page?.id, onRequestPageFocus, setHoveredSlot])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -239,6 +251,35 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
   // Sort slots by z-index (backgrounds first, overlays last)
   const sortedSlots = [...slots].sort((a, b) => a.z - b.z)
 
+  const hoverScale = internalRef.current?.getScreenCTM()?.a || 1
+  const hoverStrokeWidth = 2 / hoverScale
+  const multiSelectionBounds = React.useMemo(() => {
+    if (!selectedSlots || selectedSlots.length <= 1) return null
+    const framesForSelection = selectedSlots
+      .map(name => frames[name])
+      .filter((f): f is { x: number; y: number; width: number; height: number } => !!f)
+    if (framesForSelection.length === 0) return null
+
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    framesForSelection.forEach(f => {
+      minX = Math.min(minX, f.x)
+      minY = Math.min(minY, f.y)
+      maxX = Math.max(maxX, f.x + f.width)
+      maxY = Math.max(maxY, f.y + f.height)
+    })
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
+    }
+  }, [selectedSlots, frames])
+
   return (
     <svg
       ref={internalRef}
@@ -248,7 +289,7 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
       height={height}
       viewBox={`${viewBox[0]} ${viewBox[1]} ${viewBox[2]} ${viewBox[3]}`}
       style={{
-        background: '#ffffff',
+        background: page?.backgroundColor || '#ffffff',
         userSelect: 'none',
         overflow: 'visible'
       }}
@@ -288,39 +329,80 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
       <g clipPath="url(#canvas-clip)">
         {/* Render all slots */}
         {sortedSlots.map(slot => {
-        const frame = frames[slot.name]
-        if (!frame) {
-          return null
-        }
+          const frame = frames[slot.name]
+          if (!frame) {
+            return null
+          }
 
-        const isSelected = selectedSlots.includes(slot.name)
+          const isSelected = selectedSlots.includes(slot.name)
 
-        return (
-          <SlotRenderer
-            key={slot.name}
-            slot={slot}
-            frame={frame}
-            template={template}
-            isSelected={isSelected}
-            onPointerDown={(e: React.MouseEvent<SVGGElement>) => handleSlotPointerDown(slot.name, e)}
+          return (
+            <SlotRenderer
+              key={slot.name}
+              slot={slot}
+              frame={frame}
+              template={template}
+              isSelected={isSelected}
+              onPointerDown={(e: React.MouseEvent<SVGGElement>) => handleSlotPointerDown(slot.name, e)}
+            />
+          )
+        })}
+
+        {hoveredSlot && !selectedSlots.includes(hoveredSlot) && frames[hoveredSlot] && (
+          <rect
+            x={frames[hoveredSlot].x}
+            y={frames[hoveredSlot].y}
+            width={frames[hoveredSlot].width}
+            height={frames[hoveredSlot].height}
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth={hoverStrokeWidth}
+            pointerEvents="none"
+            opacity={0.9}
           />
-        )
-      })}
+        )}
+
+        {multiSelectionBounds && (
+          <>
+            <rect
+              x={multiSelectionBounds.x}
+              y={multiSelectionBounds.y}
+              width={multiSelectionBounds.width}
+              height={multiSelectionBounds.height}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={hoverStrokeWidth}
+              pointerEvents="none"
+            />
+            <g
+              transform={`translate(${multiSelectionBounds.x + multiSelectionBounds.width}, ${multiSelectionBounds.y})`}
+              pointerEvents="none"
+            >
+              <circle
+                cx="0"
+                cy="0"
+                r={10 / hoverScale}
+                fill="#3b82f6"
+                stroke="white"
+                strokeWidth={hoverStrokeWidth}
+              />
+              <text
+                x="0"
+                y={3 / hoverScale}
+                fill="white"
+                fontSize={10 / hoverScale}
+                fontFamily="Inter, sans-serif"
+                fontWeight="700"
+                textAnchor="middle"
+              >
+                {selectedSlots.length}
+              </text>
+            </g>
+          </>
+        )}
       </g>
 
       {/* Native SVG Selection Overlay - NOT clipped, always visible (hidden when editing) */}
-      {/* DEBUG: Check overlay render condition */}
-      {(() => {
-        const shouldRender = selectedSlots.length > 0 && internalRef.current && !editingSlot
-        console.log('[SvgStage] Overlay render check:', {
-          selectedSlotsLength: selectedSlots.length,
-          selectedSlots,
-          hasInternalRef: !!internalRef.current,
-          editingSlot,
-          shouldRender
-        })
-        return null
-      })()}
       {selectedSlots.length > 0 && internalRef.current && !editingSlot && (
         <NativeSelectionOverlay
           svgElement={internalRef.current}

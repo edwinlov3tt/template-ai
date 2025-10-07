@@ -305,6 +305,34 @@ copySVGToClipboard(svgString: string): Promise<void>
 - Safari 14+
 - Edge 90+
 
+## Known Issues & Fixes
+
+### 1. CORS Image Loading ✅ FIXED
+- **Issue**: External images caused "Tainted canvas" security errors
+- **Solution**: Automatic conversion to data URIs before export
+- **Details**: [EXPORT_FIX.md](./EXPORT_FIX.md#fix-4-enhanced-canvg-options)
+
+### 2. Multi-Page Export ✅ FIXED
+- **Issue**: Wrong page exported in multi-page templates
+- **Solution**: Added `currentPageId` prop and page-specific SVG selector
+- **Details**: [EXPORT_FIX.md](./EXPORT_FIX.md#fix-3-current-page-selection)
+
+### 3. ViewBox Distortion ✅ FIXED
+- **Issue**: Exports at different aspect ratios showed distorted content
+- **Solution**: Set export viewBox to match canvas dimensions (not baseViewBox)
+- **Details**: [EXPORT_VIEWBOX_FIX.md](./EXPORT_VIEWBOX_FIX.md)
+
+### 4. Blank PNG/JPEG Exports ✅ FIXED
+- **Issue**: Exported images were blank/white with no content
+- **Solution**: Improved SVG selection with unique data attributes
+- **Details**: [EXPORT_FIX.md](./EXPORT_FIX.md#root-causes-identified)
+
+## Related Documentation
+
+- [EXPORT_FIX.md](./EXPORT_FIX.md) - Detailed fix documentation for CORS and selection issues
+- [EXPORT_VIEWBOX_FIX.md](./EXPORT_VIEWBOX_FIX.md) - ViewBox distortion fix technical analysis
+- [CANVAS_ARCHITECTURE.md](./CANVAS_ARCHITECTURE.md) - Canvas system overview
+
 ## Summary
 
 The export system is **fully implemented** and production-ready with:
@@ -315,5 +343,8 @@ The export system is **fully implemented** and production-ready with:
 ✅ Clean UI with format-specific options
 ✅ Error handling and user feedback
 ✅ Comprehensive filename generation
+✅ CORS image handling
+✅ Multi-page support
+✅ ViewBox distortion prevention
 
-**Status**: Ready for use, no blockers.
+**Status**: Ready for use, all critical issues resolved.

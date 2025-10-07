@@ -150,6 +150,8 @@ export interface Page {
   slots: Slot[]
   /** Frame positions by ratio for this page's slots */
   frames: Record<string, Record<string, { x: number; y: number; width: number; height: number; rotation?: number }>>
+  /** Background color for this page */
+  backgroundColor?: string
 }
 
 export interface Template {

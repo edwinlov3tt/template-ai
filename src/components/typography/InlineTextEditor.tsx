@@ -33,7 +33,7 @@ export const InlineTextEditor: React.FC<InlineTextEditorProps> = ({
   const [fontFamily, setFontFamily] = useState(slot.fontFamily || 'Inter')
   const [fontWeight, setFontWeight] = useState(slot.fontWeight || 400)
   const [fontStyle, setFontStyle] = useState(slot.fontStyle || 'normal')
-  const [color, setColor] = useState(slot.color || slot.fill || '#000000')
+  const [color, setColor] = useState(slot.color ?? slot.fill ?? '#000000')
   const [textAlign, setTextAlign] = useState(slot.textAlign || 'left')
   const [letterSpacing, setLetterSpacing] = useState(slot.letterSpacing || 0)
   const [lineHeight, setLineHeight] = useState(slot.lineHeight || 1.2)
@@ -44,7 +44,7 @@ export const InlineTextEditor: React.FC<InlineTextEditorProps> = ({
     setFontFamily(slot.fontFamily || 'Inter')
     setFontWeight(slot.fontWeight || 400)
     setFontStyle(slot.fontStyle || 'normal')
-    setColor(slot.color || slot.fill || '#000000')
+    setColor(slot.color ?? slot.fill ?? '#000000')
     setTextAlign(slot.textAlign || 'left')
     setLetterSpacing(slot.letterSpacing || 0)
     setLineHeight(slot.lineHeight || 1.2)
@@ -168,7 +168,7 @@ export const InlineTextEditor: React.FC<InlineTextEditorProps> = ({
           lineHeight: lineHeight,
           outline: '2px solid #3B82F6',
           outlineOffset: '2px',
-          background: 'rgba(255, 255, 255, 0.9)',
+          background: 'transparent',
           padding: '4px',
           boxSizing: 'border-box',
           borderRadius: '2px',

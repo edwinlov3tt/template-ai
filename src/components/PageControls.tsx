@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronUp, ChevronDown, Copy, Trash2 } from 'lucide-react'
+import { ChevronUp, ChevronDown, Copy, Trash2, FilePlus } from 'lucide-react'
 import type { Page } from '../schema/types'
 
 interface PageControlsProps {
@@ -12,6 +12,7 @@ interface PageControlsProps {
   onMoveDown: () => void
   onDuplicate: () => void
   onDelete: () => void
+  onAddPage: () => void
 }
 
 export function PageControls({
@@ -23,7 +24,8 @@ export function PageControls({
   onMoveUp,
   onMoveDown,
   onDuplicate,
-  onDelete
+  onDelete,
+  onAddPage
 }: PageControlsProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(page.name)
@@ -174,6 +176,23 @@ export function PageControls({
           }}
         >
           <Trash2 size={28} color={canDelete ? '#6b7280' : '#6b7280'} strokeWidth={2} />
+        </button>
+
+        {/* Add Page */}
+        <button
+          onClick={onAddPage}
+          title="Add page"
+          style={{
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '4px'
+          }}
+        >
+          <FilePlus size={28} color="#6b7280" strokeWidth={2} />
         </button>
       </div>
     </>

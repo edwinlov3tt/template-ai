@@ -22,6 +22,7 @@ export interface SlotRendererProps {
 export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown }: SlotRendererProps) {
   const { x, y, width, height, rotation = 0 } = frame
   const { editingSlot, updateSlot, stopEditing } = useEditorStore()
+  const setHoveredSlot = useEditorStore(state => state.setHoveredSlot)
 
   // Use native SVG positioning - no transforms needed!
   // The viewBox handles all coordinate mapping automatically
@@ -33,6 +34,12 @@ export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown 
     },
     onClick: (e: React.MouseEvent<SVGGElement>) => {
       e.stopPropagation()
+    },
+    onMouseEnter: () => {
+      setHoveredSlot(slot.name)
+    },
+    onMouseLeave: () => {
+      setHoveredSlot(null)
     },
     style: {
       cursor: slot.locked ? 'default' : 'move',
@@ -125,7 +132,7 @@ export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown 
       const fontSize = slot.fontSize || 16
       const fontFamily = slot.fontFamily || template.tokens.typography.heading?.family || 'Inter'
       const fontWeight = slot.fontWeight || 'normal'
-      const fill = String(slot.fill || slot.color || '#000000')
+      const fill = String((slot.color ?? slot.fill) || '#000000')
       const textAlign = slot.textAlign || 'left'
       const fontStyle = slot.fontStyle || 'normal'
       const letterSpacing = slot.letterSpacing || 0

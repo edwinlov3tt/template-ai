@@ -26,12 +26,17 @@ export interface EditorState {
   duplicatePage: (pageId: string) => void
   renamePage: (pageId: string, name: string) => void
   reorderPage: (pageId: string, direction: 'up' | 'down') => void
+  updatePageBackgroundColor: (pageId: string, color: string) => void
 
   // Selection
   selectedSlots: string[]
   setSelection: (slots: string[]) => void
   selectSlot: (slotName: string) => void
   deselectAll: () => void
+  hoveredSlot: string | null
+  setHoveredSlot: (slotName: string | null) => void
+  canvasSelected: boolean
+  setCanvasSelected: (selected: boolean) => void
 
   // Text editing
   editingSlot: string | null
@@ -57,6 +62,8 @@ export interface EditorState {
       shapeId?: ShapeId
       shapeOptions?: Record<string, unknown>
       textStyle?: 'heading' | 'subheading' | 'body'
+      frame?: { x: number; y: number; width: number; height: number }
+      textOverrides?: Partial<Slot>
     }
   ) => void
   createNewTemplate: () => void
@@ -70,6 +77,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   currentPageId: null,
   selectedSlots: [],
   editingSlot: null,
+  hoveredSlot: null,
+  canvasSelected: false,
   canvasSize: { id: '1:1', w: 1080, h: 1080 },
   zoom: 100,
   gridVisible: false,
@@ -84,14 +93,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         template: migratedTemplate,
         history: initializeHistory(migratedTemplate),
         currentPageId: migratedTemplate.pages[0]?.id || null,
-        selectedSlots: []
+        selectedSlots: [],
+        canvasSelected: false
       })
     } else {
       set({
         template: null,
         history: null,
         currentPageId: null,
-        selectedSlots: []
+        selectedSlots: [],
+        canvasSelected: false
       })
     }
   },
@@ -131,58 +142,75 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   // Selection actions
   setSelection: (slots) => {
-    console.log('[editorStore] setSelection called with:', slots)
-    set({ selectedSlots: slots })
-    console.log('[editorStore] selectedSlots state updated to:', slots)
+    set((state) => ({
+      selectedSlots: slots,
+      canvasSelected: slots.length === 0 ? state.canvasSelected : false
+    }))
   },
 
   selectSlot: (slotName) => {
     const { selectedSlots } = get()
     if (!selectedSlots.includes(slotName)) {
-      set({ selectedSlots: [slotName] })
+      set({ selectedSlots: [slotName], canvasSelected: false })
     }
   },
 
-  deselectAll: () => set({ selectedSlots: [] }),
+  deselectAll: () => set({ selectedSlots: [], canvasSelected: false }),
+
+  setHoveredSlot: (slotName) => set({ hoveredSlot: slotName }),
+
+  setCanvasSelected: (selected) => {
+    if (selected) {
+      set({ canvasSelected: true, selectedSlots: [] })
+    } else {
+      set({ canvasSelected: false })
+    }
+  },
 
   // Text editing actions
   startEditing: (slotName) => {
-    console.log('[editorStore] startEditing called for:', slotName)
     set({ editingSlot: slotName, selectedSlots: [slotName] })
-    console.log('[editorStore] editingSlot state set to:', slotName)
   },
 
   stopEditing: () => {
-    console.log('[editorStore] stopEditing called')
     set({ editingSlot: null })
   },
 
   // Page management actions
   setCurrentPage: (pageId) => {
     const { currentPageId } = get()
-    console.log('[setCurrentPage] called with:', pageId, 'current:', currentPageId)
     if (currentPageId === pageId) {
-      console.log('[setCurrentPage] same page, not clearing selection')
       return // Don't clear selection if already on this page
     }
-    console.log('[setCurrentPage] switching page, clearing selection')
-    set({ currentPageId: pageId, selectedSlots: [] })
+    set({ currentPageId: pageId, selectedSlots: [], canvasSelected: false })
   },
 
   addPage: () => {
     const { template, history } = get()
     if (!template) return
 
-    // Generate unique page name
-    const pageCount = template.pages.length
-    const newPageName = `page-${pageCount + 1}`
-    const newPageId = `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    // Find the next available page number (reuse deleted numbers)
+    const existingPageNumbers = template.pages
+      .map(p => {
+        const match = p.name.match(/^page-(\d+)$/)
+        return match ? parseInt(match[1], 10) : null
+      })
+      .filter((n): n is number => n !== null)
+
+    let pageNumber = 1
+    while (existingPageNumbers.includes(pageNumber)) {
+      pageNumber++
+    }
+
+    const newPageName = `page-${pageNumber}`
+    const newPageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 
     const newPage: Page = {
       id: newPageId,
       name: newPageName,
       slots: [],
-      frames: {}
+      frames: {},
+      backgroundColor: '#ffffff'
     }
 
     const newTemplate: Template = {
@@ -193,6 +221,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       template: newTemplate,
       currentPageId: newPageId,
+      selectedSlots: [],
+      canvasSelected: false,
       history: history ? addVersion(history, newTemplate, `Added ${newPageName}`) : history
     })
   },
@@ -233,7 +263,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (pageIndex === -1) return
 
     const originalPage = template.pages[pageIndex]
-    const newPageId = `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const newPageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 
     // Generate new page name
     const baseName = originalPage.name.replace(/-copy(-\d+)?$/, '')
@@ -330,6 +360,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 
+  updatePageBackgroundColor: (pageId, color) => {
+    const { template, history } = get()
+    if (!template) return
+
+    const newPages = template.pages.map(page =>
+      page.id === pageId ? { ...page, backgroundColor: color } : page
+    )
+
+    const newTemplate: Template = {
+      ...template,
+      pages: newPages
+    }
+
+    set({
+      template: newTemplate,
+      history: history ? addVersion(history, newTemplate, `Changed background color`) : history
+    })
+  },
+
   // Canvas view actions
   setCanvasSize: (size) => set({ canvasSize: size }),
   setZoom: (zoom) => set({ zoom }),
@@ -407,9 +456,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (page.id !== currentPageId) return page
 
       // Reorder by updating z-index
+      // IMPORTANT: First item in visual list (position 0) should have HIGHEST z-index
       const newSlots = page.slots.map(slot => {
         const newIndex = slotNames.indexOf(slot.name)
-        return newIndex >= 0 ? { ...slot, z: newIndex } : slot
+        // Invert: position 0 → highest z, last position → lowest z
+        return newIndex >= 0 ? { ...slot, z: slotNames.length - 1 - newIndex } : slot
       })
 
       return {
@@ -490,6 +541,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         color: '#111827',
         fontFamily: 'Inter',
         fontWeight: '700',
+        textAlign: 'center',
         style: 'heading',
         maxLines: 2,
         content: 'Add heading'
@@ -500,6 +552,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         color: '#111827',
         fontFamily: 'Inter',
         fontWeight: '600',
+        textAlign: 'center',
         style: 'subheading',
         maxLines: 3,
         content: 'Add subheading'
@@ -510,6 +563,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         color: '#374151',
         fontFamily: 'Inter',
         fontWeight: '400',
+        textAlign: 'center',
         style: 'body',
         maxLines: 10,
         content: 'Add body text'
@@ -517,9 +571,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     const textStyle = options?.textStyle ?? 'heading'
+    const textPreset = {
+      ...textStylePresets[textStyle]
+    }
+
+    if (options?.textOverrides && slotType === 'text') {
+      Object.assign(textPreset, options.textOverrides)
+    }
 
     const defaultProps: Record<string, any> = {
-      text: textStylePresets[textStyle],
+      text: textPreset,
       image: {
         fit: 'cover'
       },
@@ -559,8 +620,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           h: shapeDefinition?.defaultSize.height ?? 120
         }
 
-    const x = vbX + (vbWidth - defaultSize.w) / 2
-    const y = vbY + (vbHeight - defaultSize.h) / 2
+    const defaultFrame = options?.frame ?? {
+      x: vbX + (vbWidth - defaultSize.w) / 2,
+      y: vbY + (vbHeight - defaultSize.h) / 2,
+      width: defaultSize.w,
+      height: defaultSize.h
+    }
 
     // Find highest z-index in current page and add 1
     const maxZ = currentPage.slots.reduce((max, slot) => Math.max(max, slot.z), 0)
@@ -581,21 +646,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (!newFrames[currentRatio]) {
         newFrames[currentRatio] = {}
       }
-      newFrames[currentRatio][slotName] = {
-        x,
-        y,
-        width: defaultSize.w,
-        height: defaultSize.h
-      }
-
-      console.log('[addSlot] Creating new slot:', {
-        slotName,
-        slotType,
-        currentRatio,
-        frame: newFrames[currentRatio][slotName],
-        pageId: page.id,
-        locked: newSlot.locked || false
-      })
+      newFrames[currentRatio][slotName] = defaultFrame
 
       return {
         ...page,
@@ -619,7 +670,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   createNewTemplate: () => {
     const { canvasSize } = get()
 
-    const firstPageId = `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const firstPageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 
     const newTemplate: Template = {
       id: 'template-' + Date.now(),
@@ -645,7 +696,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         id: firstPageId,
         name: 'page-1',
         slots: [],
-        frames: {}
+        frames: {},
+        backgroundColor: '#ffffff'
       }],
       constraints: {
         global: [],
@@ -663,7 +715,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       currentPageId: firstPageId,
       history: initializeHistory(newTemplate),
       selectedSlots: [],
-      zoom: 55
+      zoom: 55,
+      canvasSelected: false
     })
   }
 }))

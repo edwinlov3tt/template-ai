@@ -97,7 +97,6 @@ export const DISPLAY_FONTS = [
   'Monoton',
   'Press Start 2P',
   'Patua One',
-  'Righteous',
   'Titan One',
   'Audiowide',
   'Fugaz One',
@@ -150,20 +149,21 @@ export const HANDWRITING_FONTS = [
 // Trending Fonts (2024-2025)
 export const TRENDING_FONTS = [
   'Plus Jakarta Sans',
+  'Space Grotesk',
   'Sora',
   'Epilogue',
-  'Space Grotesk',
   'Manrope',
   'DM Sans',
-  'Satoshi',
-  'General Sans',
   'Outfit',
-  'Clash Display',
-  'Cabinet Grotesk',
-  'Switzer',
+  'Urbanist',
+  'Work Sans',
+  'Figtree',
+  'Jost',
+  'Lexend',
+  'Be Vietnam Pro',
   'Bricolage Grotesque',
   'Onest',
-  'Geist'
+  'Nunito Sans'
 ]
 
 // All categories
