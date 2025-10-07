@@ -20,6 +20,19 @@ export const SolidColorPicker: React.FC<SolidColorPickerProps> = ({
   const [color, setColor] = useState(initialColor)
   const [eyedropperSupported] = useState(() => 'EyeDropper' in window)
   const setActivePanelSection = useEditorStore((state) => state.setActivePanelSection)
+  const template = useEditorStore((state) => state.template)
+  const selectedSlots = useEditorStore((state) => state.selectedSlots)
+  const currentPageId = useEditorStore((state) => state.currentPageId)
+
+  // Check if selected slot is text/button (don't show gradient for text)
+  const selectedSlot = React.useMemo(() => {
+    if (!template || !currentPageId || selectedSlots.length === 0) return null
+    const currentPage = template.pages.find(p => p.id === currentPageId)
+    if (!currentPage) return null
+    return currentPage.slots.find(s => s.name === selectedSlots[0])
+  }, [template, currentPageId, selectedSlots])
+
+  const showGradientTab = selectedSlot && !['text', 'button'].includes(selectedSlot.type)
 
   // Handle color change
   const handleColorChange = useCallback((newColor: string) => {
@@ -47,51 +60,68 @@ export const SolidColorPicker: React.FC<SolidColorPickerProps> = ({
     <div style={{
       padding: '16px 12px'
     }}>
-      {/* Tabs */}
-      <div style={{
-        display: 'flex',
-        borderBottom: '1px solid #3a3a3a',
-        marginBottom: '16px'
-      }}>
-        <button
-          style={{
-            flex: 1,
-            padding: '8px',
-            background: 'none',
-            border: 'none',
-            borderBottom: '2px solid #3b82f6',
+      {/* Tabs - Only show gradient tab for shapes/images, not text/buttons */}
+      {showGradientTab ? (
+        <div style={{
+          display: 'flex',
+          borderBottom: '1px solid #3a3a3a',
+          marginBottom: '16px'
+        }}>
+          <button
+            style={{
+              flex: 1,
+              padding: '8px',
+              background: 'none',
+              border: 'none',
+              borderBottom: '2px solid #3b82f6',
+              color: '#e5e7eb',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer'
+            }}
+          >
+            Solid color
+          </button>
+          <button
+            onClick={() => setActivePanelSection('gradient-picker')}
+            style={{
+              flex: 1,
+              padding: '8px',
+              background: 'none',
+              border: 'none',
+              borderBottom: '2px solid transparent',
+              color: '#e5e7eb',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#3b82f6'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#e5e7eb'
+            }}
+          >
+            Gradient
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          borderBottom: '1px solid #3a3a3a',
+          marginBottom: '16px',
+          padding: '8px',
+          textAlign: 'center'
+        }}>
+          <span style={{
             color: '#e5e7eb',
             fontSize: '13px',
-            fontWeight: '500',
-            cursor: 'pointer'
-          }}
-        >
-          Solid color
-        </button>
-        <button
-          onClick={() => setActivePanelSection('gradient-picker')}
-          style={{
-            flex: 1,
-            padding: '8px',
-            background: 'none',
-            border: 'none',
-            borderBottom: '2px solid transparent',
-            color: '#e5e7eb',
-            fontSize: '13px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = '#3b82f6'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = '#e5e7eb'
-          }}
-        >
-          Gradient
-        </button>
-      </div>
+            fontWeight: '500'
+          }}>
+            Solid color
+          </span>
+        </div>
+      )}
 
       {/* Color picker */}
       <div style={{

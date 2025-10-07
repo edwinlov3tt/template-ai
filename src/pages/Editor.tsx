@@ -55,7 +55,7 @@ export default function Editor() {
   const [resizeModalOpen, setResizeModalOpen] = React.useState(false)
   const [exportModalOpen, setExportModalOpen] = React.useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = React.useState(false)
-  type ToolId = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more'
+  type ToolId = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' | 'more' | 'colors'
   const [leftPanelCollapsed, setLeftPanelCollapsed] = React.useState(false)
   const [activeTool, setActiveTool] = React.useState<ToolId | null>(null)
   const [leftSidePanelView, setLeftSidePanelView] = React.useState<LeftPanelView>(null)
@@ -451,25 +451,7 @@ export default function Editor() {
             />
           )}
 
-          {/* Floating Color Panel - Only show when template exists */}
-          {template && (
-            <div style={{
-              position: 'absolute',
-              top: '16px',
-              right: '332px',
-              width: '300px',
-              maxHeight: 'calc(100vh - 128px)',
-              background: '#1a1a1a',
-              borderRadius: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              display: 'flex',
-              flexDirection: 'column',
-              zIndex: 30,
-              overflow: 'hidden'
-            }}>
-              <ColorPanel />
-            </div>
-          )}
+          {/* Color Panel moved to LeftRail as 'colors' tool */}
         </div>
       </div>
 

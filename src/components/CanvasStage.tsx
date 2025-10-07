@@ -10,6 +10,7 @@ import { LayerActionsChipOverlay } from './LayerActionsChipOverlay'
 import { PageControls } from './PageControls'
 import { applyLayoutForSize } from '../layout/layoutEngine'
 import { useEditorStore } from '../state/editorStore'
+import { GradientOverlay } from './color/GradientOverlay'
 
 // Feature flag for V2 canvas
 const USE_V2_CANVAS = import.meta.env.VITE_USE_V2_CANVAS === 'true'
@@ -316,6 +317,25 @@ export function CanvasStage({
                       opacity="0.5"
                     />
                   </svg>
+
+                  {/* Gradient Editing Overlay - Shows gradient handles on canvas */}
+                  {currentPageId === page.id && (
+                    <svg
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        pointerEvents: 'none'
+                      }}
+                      viewBox={`${template.canvas.baseViewBox[0]} ${template.canvas.baseViewBox[1]} ${template.canvas.baseViewBox[2]} ${template.canvas.baseViewBox[3]}`}
+                    >
+                      <g style={{ pointerEvents: 'all' }}>
+                        <GradientOverlay />
+                      </g>
+                    </svg>
+                  )}
                 </div>
               </div>
             ))}
