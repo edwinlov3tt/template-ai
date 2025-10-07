@@ -120,6 +120,24 @@ export function CanvasStage({
       return
     }
 
+    const canvasContainer = target.closest('.canvas-container')
+    if (canvasContainer) {
+      const svgElement = canvasContainer.querySelector('[data-canvas-svg="true"]') as SVGSVGElement | null
+      if (svgElement) {
+        setHoveredSlot(null)
+        setCanvasSelected(false)
+        const marqueeEvent = new CustomEvent('external-marquee-start', {
+          detail: {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            shiftKey: event.shiftKey
+          }
+        })
+        svgElement.dispatchEvent(marqueeEvent)
+        return
+      }
+    }
+
     setHoveredSlot(null)
     onSelectionChange([])
     setCanvasSelected(false)

@@ -14,6 +14,7 @@ import { PropertiesToolbar } from '../components/PropertiesToolbar'
 import { FloatingTextToolbar } from '../components/typography/FloatingTextToolbar'
 import { LeftSidePanel, type LeftPanelView } from '../components/LeftSidePanel'
 import { CanvasPropertiesPanel } from '../components/CanvasPropertiesPanel'
+import { ColorPanel } from '../components/color/ColorPanel'
 import { useEditorStore } from '../state/editorStore'
 import { preloadTemplateFonts } from '../utils/fontLoader'
 import type { SmartSnapOptions } from '../editor/utils/smartSnapping'
@@ -170,8 +171,22 @@ export default function Editor() {
     deleteSlot(slotName)
   }
 
-  function handleSelectSlot(slotName: string, pageId: string) {
+  function handleSelectSlot(slotName: string, pageId: string, options?: { extend?: boolean; toggle?: boolean }) {
     setCurrentPage(pageId)
+
+    if (options?.extend) {
+      const alreadySelected = selectedSlots.includes(slotName)
+      if (alreadySelected) {
+        if (options.toggle) {
+          setSelection(selectedSlots.filter(name => name !== slotName))
+        }
+        return
+      }
+
+      setSelection([...selectedSlots, slotName])
+      return
+    }
+
     setSelection([slotName])
   }
 
@@ -434,6 +449,26 @@ export default function Editor() {
               onSelectSlot={handleSelectSlot}
               onReorderSlots={reorderSlots}
             />
+          )}
+
+          {/* Floating Color Panel - Only show when template exists */}
+          {template && (
+            <div style={{
+              position: 'absolute',
+              top: '16px',
+              right: '332px',
+              width: '300px',
+              maxHeight: 'calc(100vh - 128px)',
+              background: '#1a1a1a',
+              borderRadius: '12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              zIndex: 30,
+              overflow: 'hidden'
+            }}>
+              <ColorPanel />
+            </div>
           )}
         </div>
       </div>

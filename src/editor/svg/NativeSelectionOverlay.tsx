@@ -64,6 +64,8 @@ export function NativeSelectionOverlay({
 
   // Track last click time for double-click detection
   const lastClickTimeRef = useRef<number>(0)
+  const originalFontSizeRef = useRef<number | null>(null)
+  const lastFontSizeRef = useRef<number | null>(null)
 
   const [dragState, setDragState] = useState<{
     handle: DragHandle
@@ -141,6 +143,14 @@ export function NativeSelectionOverlay({
       lastY: svgPos.y,
       velocity: 0
     })
+
+    if (isTextSlot && slot) {
+      originalFontSizeRef.current = slot.fontSize || 16
+      lastFontSizeRef.current = originalFontSizeRef.current
+    } else {
+      originalFontSizeRef.current = null
+      lastFontSizeRef.current = null
+    }
   }, [screenToSVG, x, y, width, height])
 
   const handleMouseDown = useCallback((handle: DragHandle, e: React.MouseEvent) => {
@@ -188,6 +198,16 @@ export function NativeSelectionOverlay({
       threshold: smartSnapOptions.threshold * velocityFactor
     }
     const disableSmartSnap = !smartSnapOptions.enabled || e.metaKey || e.ctrlKey
+
+    const applyFontScale = (scaleValue: number) => {
+      if (!isTextSlot || !slot) return
+      if (!isFinite(scaleValue) || scaleValue <= 0) return
+      const baseFont = originalFontSizeRef.current ?? slot.fontSize ?? 16
+      const nextSize = Math.max(6, Math.round(baseFont * scaleValue))
+      if (lastFontSizeRef.current === nextSize) return
+      useEditorStore.getState().updateSlot(selectedSlot, { fontSize: nextSize }, `Resized ${selectedSlot}`)
+      lastFontSizeRef.current = nextSize
+    }
 
     const { originalFrame } = dragState
 
@@ -291,6 +311,9 @@ export function NativeSelectionOverlay({
             width: newWidth,
             height: newHeight
           })
+          if (dragState.handle === 'se' || dragState.handle === 'ne') {
+            applyFontScale(newHeight / dragState.originalFrame.height)
+          }
         }
         return
       }
@@ -339,6 +362,10 @@ export function NativeSelectionOverlay({
           width: snapResult.width,
           height: snapResult.height
         })
+        if (dragState.handle === 'se' || dragState.handle === 'ne') {
+          const targetHeight = snapResult.height ?? newHeight
+          applyFontScale(targetHeight / dragState.originalFrame.height)
+        }
       }
     } else if (dragState.handle === 'rotate') {
       // Rotation - no snapping
@@ -359,6 +386,8 @@ export function NativeSelectionOverlay({
     setDragState(null)
     setActiveGuides([]) // Clear guides when done dragging
     setSnapState({}) // Clear snap state for next drag
+    originalFontSizeRef.current = null
+    lastFontSizeRef.current = null
   }, [])
 
   // Attach global mouse handlers while dragging

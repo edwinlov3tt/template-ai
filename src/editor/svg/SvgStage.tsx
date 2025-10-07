@@ -186,12 +186,12 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
       }
 
       cleanup()
-      setPendingAutoDrag({
-        slotName: candidate.slotName,
-        clientX: moveEvent.clientX,
-        clientY: moveEvent.clientY
-      })
-    }
+    setPendingAutoDrag({
+      slotName: candidate.slotName,
+      clientX: moveEvent.clientX,
+      clientY: moveEvent.clientY
+    })
+  }
 
     function handleUp() {
       cleanup()
@@ -207,7 +207,20 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
     requestAnimationFrame(() => {
       suppressBackgroundClickRef.current = false
     })
-  }, [selectedSlots, onSelectionChange, page?.id, onRequestPageFocus, setHoveredSlot])
+  }, [selectedSlots, onSelectionChange, page?.id, onRequestPageFocus, setHoveredSlot, setCanvasSelected])
+
+  const handleSvgMouseDown = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return
+    if (event.target !== event.currentTarget) return
+    const point = screenPointToSvg(event.clientX, event.clientY)
+    if (!point) return
+
+    marqueeOriginRef.current = { x: point.x, y: point.y, additive: event.shiftKey }
+    setMarqueeRect({ x: point.x, y: point.y, width: 0, height: 0 })
+    suppressBackgroundClickRef.current = true
+    window.addEventListener('mousemove', handleMarqueeMouseMove)
+    window.addEventListener('mouseup', handleMarqueeMouseUp)
+  }, [handleMarqueeMouseMove, handleMarqueeMouseUp, screenPointToSvg])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -253,6 +266,96 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
 
   const hoverScale = internalRef.current?.getScreenCTM()?.a || 1
   const hoverStrokeWidth = 2 / hoverScale
+  const [marqueeRect, setMarqueeRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const marqueeOriginRef = useRef<{ x: number; y: number; additive: boolean } | null>(null)
+
+  const screenPointToSvg = useCallback((clientX: number, clientY: number) => {
+    const svg = internalRef.current
+    if (!svg) return null
+    const point = svg.createSVGPoint()
+    point.x = clientX
+    point.y = clientY
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return null
+    const svgPoint = point.matrixTransform(ctm.inverse())
+    return { x: svgPoint.x, y: svgPoint.y }
+  }, [])
+
+  const finalizeMarqueeSelection = useCallback((rect: { x: number; y: number; width: number; height: number }, additive: boolean) => {
+    if (!page && !template) return
+    const slotsToCheck = page ? page.slots : (template?.slots || [])
+    const framesToCheck = page ? frames : template ? applyLayoutForSize(template, width, height, currentRatio) : {}
+
+    const intersects = (frame: { x: number; y: number; width: number; height: number }) => {
+      return (
+        rect.x < frame.x + frame.width &&
+        rect.x + rect.width > frame.x &&
+        rect.y < frame.y + frame.height &&
+        rect.y + rect.height > frame.y
+      )
+    }
+
+    const newlySelected = slotsToCheck
+      .filter(slot => {
+        const frame = framesToCheck?.[slot.name]
+        return frame ? intersects(frame) : false
+      })
+      .map(slot => slot.name)
+
+    let combined = newlySelected
+    if (additive && newlySelected.length > 0) {
+      const currentSelection = useEditorStore.getState().selectedSlots
+      const merged = new Set([...currentSelection, ...newlySelected])
+      combined = Array.from(merged)
+    }
+
+    onSelectionChange(combined)
+    setCanvasSelected(combined.length === 0)
+  }, [page, template, frames, onSelectionChange, setCanvasSelected, width, height, currentRatio])
+
+  const handleMarqueeMouseMove = useCallback((event: MouseEvent) => {
+    const origin = marqueeOriginRef.current
+    if (!origin) return
+    const point = screenPointToSvg(event.clientX, event.clientY)
+    if (!point) return
+
+    const x = Math.min(origin.x, point.x)
+    const y = Math.min(origin.y, point.y)
+    const widthRect = Math.abs(point.x - origin.x)
+    const heightRect = Math.abs(point.y - origin.y)
+    setMarqueeRect({ x, y, width: widthRect, height: heightRect })
+  }, [screenPointToSvg])
+
+  const handleMarqueeMouseUp = useCallback((event: MouseEvent) => {
+    const origin = marqueeOriginRef.current
+    if (!origin) return
+    const point = screenPointToSvg(event.clientX, event.clientY) || { x: origin.x, y: origin.y }
+    const rect = {
+      x: Math.min(origin.x, point.x),
+      y: Math.min(origin.y, point.y),
+      width: Math.abs(point.x - origin.x),
+      height: Math.abs(point.y - origin.y)
+    }
+
+    window.removeEventListener('mousemove', handleMarqueeMouseMove)
+    window.removeEventListener('mouseup', handleMarqueeMouseUp)
+    marqueeOriginRef.current = null
+    setMarqueeRect(null)
+    suppressBackgroundClickRef.current = false
+
+    if (rect.width < 2 && rect.height < 2) {
+      return
+    }
+
+    finalizeMarqueeSelection(rect, origin.additive)
+  }, [finalizeMarqueeSelection, handleMarqueeMouseMove, screenPointToSvg])
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', handleMarqueeMouseMove)
+      window.removeEventListener('mouseup', handleMarqueeMouseUp)
+    }
+  }, [handleMarqueeMouseMove, handleMarqueeMouseUp])
   const multiSelectionBounds = React.useMemo(() => {
     if (!selectedSlots || selectedSlots.length <= 1) return null
     const framesForSelection = selectedSlots
@@ -293,6 +396,7 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
         userSelect: 'none',
         overflow: 'visible'
       }}
+      onMouseDown={handleSvgMouseDown}
       onClick={handleBackgroundClick}
     >
       <defs>
@@ -372,8 +476,26 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
               fill="none"
               stroke="#3b82f6"
               strokeWidth={hoverStrokeWidth}
+              strokeDasharray={`${4 / hoverScale} ${4 / hoverScale}`}
               pointerEvents="none"
             />
+            {selectedSlots.map(name => {
+              const frame = frames[name]
+              if (!frame) return null
+              return (
+                <rect
+                  key={`selected-outline-${name}`}
+                  x={frame.x}
+                  y={frame.y}
+                  width={frame.width}
+                  height={frame.height}
+                  fill="none"
+                  stroke="#3b82f6"
+                  strokeWidth={hoverStrokeWidth}
+                  pointerEvents="none"
+                />
+              )
+            })}
             <g
               transform={`translate(${multiSelectionBounds.x + multiSelectionBounds.width}, ${multiSelectionBounds.y})`}
               pointerEvents="none"
@@ -419,6 +541,19 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
           viewBox={viewBox}
           pendingAutoDrag={pendingAutoDrag}
           onPendingAutoDragConsumed={() => setPendingAutoDrag(null)}
+        />
+      )}
+
+      {marqueeRect && (
+        <rect
+          x={marqueeRect.x}
+          y={marqueeRect.y}
+          width={marqueeRect.width}
+          height={marqueeRect.height}
+          fill="rgba(59, 130, 246, 0.12)"
+          stroke="#3b82f6"
+          strokeDasharray={`${4 / hoverScale} ${4 / hoverScale}`}
+          pointerEvents="none"
         />
       )}
     </svg>
