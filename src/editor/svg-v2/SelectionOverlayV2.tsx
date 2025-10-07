@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import type { Slot } from '../../schema/types'
 import type { CoordinateSystem } from '../core/CoordinateSystem'
-import { RotateCw } from 'lucide-react'
+import { RotateCw, Group, Ungroup, Lock, Unlock, Copy, Trash2 } from 'lucide-react'
 import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState, type Frame } from '../utils/smartSnapping'
 import { SmartGuides } from '../svg/SmartGuides'
 import { useEditorStore } from '../../state/editorStore'
@@ -71,6 +71,8 @@ export function SelectionOverlayV2({
     startX: number
     startY: number
     originalFrames: Record<string, { x: number; y: number; width: number; height: number }>
+    originalFontSizes?: Record<string, number>
+    originalBBox?: { x: number; y: number; width: number; height: number } | null
     lastMoveTime: number
     lastX: number
     lastY: number
@@ -79,6 +81,42 @@ export function SelectionOverlayV2({
   const [hoverHandle, setHoverHandle] = useState<DragHandle | null>(null)
   const [activeGuides, setActiveGuides] = useState<SnapGuide[]>([])
   const [snapState, setSnapState] = useState<SnapState>({})
+  const lastFontSizesRef = useRef<Record<string, number>>({})
+  const [shiftPressed, setShiftPressed] = useState(false)
+
+  const activeSlots = useMemo(() => {
+    return selectedSlots
+      .map(name => slots.find(s => s.name === name))
+      .filter((slot): slot is Slot => Boolean(slot))
+  }, [selectedSlots, slots])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Shift') {
+        setShiftPressed(true)
+      }
+    }
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Shift') {
+        setShiftPressed(false)
+      }
+    }
+
+    const handleBlur = () => {
+      setShiftPressed(false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [])
 
   // Get current zoom/scale from CTM to make handles viewport-relative
   const ctm = svgElement.getScreenCTM()
@@ -141,24 +179,56 @@ export function SelectionOverlayV2({
 
     // Store original frames for all selected slots
     const originalFrames: Record<string, { x: number; y: number; width: number; height: number }> = {}
+    const originalFontSizes: Record<string, number> = {}
     selectedSlots.forEach(slotName => {
       const frame = frames[slotName]
       if (frame) {
         originalFrames[slotName] = { x: frame.x, y: frame.y, width: frame.width, height: frame.height }
       }
+      const slot = slots.find(s => s.name === slotName)
+      if (slot && (slot.type === 'text' || slot.type === 'button')) {
+        originalFontSizes[slotName] = slot.fontSize || 16
+      }
     })
+
+    lastFontSizesRef.current = { ...originalFontSizes }
+
+    let originalBBox: { x: number; y: number; width: number; height: number } | null = null
+    const originalFrameValues = Object.values(originalFrames)
+    if (originalFrameValues.length > 0) {
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+
+      originalFrameValues.forEach(frame => {
+        minX = Math.min(minX, frame.x)
+        minY = Math.min(minY, frame.y)
+        maxX = Math.max(maxX, frame.x + frame.width)
+        maxY = Math.max(maxY, frame.y + frame.height)
+      })
+
+      originalBBox = {
+        x: minX,
+        y: minY,
+        width: Math.max(0, maxX - minX),
+        height: Math.max(0, maxY - minY)
+      }
+    }
 
     setDragState({
       handle,
       startX: svgPos.x,
       startY: svgPos.y,
       originalFrames,
+      originalFontSizes,
+      originalBBox,
       lastMoveTime: Date.now(),
       lastX: svgPos.x,
       lastY: svgPos.y,
       velocity: 0
     })
-  }, [screenToSVG, selectedSlots, frames])
+  }, [screenToSVG, selectedSlots, frames, slots])
 
   const handleMouseDown = useCallback((handle: DragHandle, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -179,42 +249,40 @@ export function SelectionOverlayV2({
 
     if (slot.type === 'text' || slot.type === 'button') {
       startEditing(slotName)
-      return
     }
+  }, [selectedSlots, slots, startEditing])
 
-    if (slot.type === 'shape') {
-      const shapeFrame = frames[slotName]
-      if (!shapeFrame) return
+  // Group operations handlers
+  const handleGroupToggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    useEditorStore.getState().groupSlots(selectedSlots)
+  }, [selectedSlots])
 
-      const paddingX = Math.min(24, shapeFrame.width * 0.1)
-      const paddingY = Math.min(24, shapeFrame.height * 0.1)
-      const textWidth = Math.max(shapeFrame.width - paddingX * 2, shapeFrame.width * 0.6)
-      const textHeight = Math.max(shapeFrame.height - paddingY * 2, shapeFrame.height * 0.6)
+  const handleLockToggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    useEditorStore.getState().lockSlots(selectedSlots)
+  }, [selectedSlots])
 
-      const textFrame = {
-        x: shapeFrame.x + (shapeFrame.width - textWidth) / 2,
-        y: shapeFrame.y + (shapeFrame.height - textHeight) / 2,
-        width: textWidth,
-        height: textHeight
-      }
+  const handleDuplicate = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    useEditorStore.getState().duplicateSlots(selectedSlots)
+  }, [selectedSlots])
 
-      const store = useEditorStore.getState()
-      store.addSlot('text', {
-        textStyle: 'body',
-        frame: textFrame,
-        textOverrides: {
-          textAlign: 'center',
-          color: '#111827',
-          fill: '#111827'
-        }
-      })
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    useEditorStore.getState().deleteSlots(selectedSlots)
+  }, [selectedSlots])
 
-      const newSlotName = useEditorStore.getState().selectedSlots[0]
-      if (newSlotName) {
-        startEditing(newSlotName)
-      }
-    }
-  }, [selectedSlots, slots, startEditing, frames])
+  // Check if slots are grouped or locked
+  const isGrouped = useMemo(() => {
+    if (activeSlots.length <= 1) return false
+    const firstSlot = activeSlots[0]
+    return firstSlot?.groupId && activeSlots.every(s => s.groupId === firstSlot.groupId)
+  }, [activeSlots])
+
+  const isLocked = useMemo(() => {
+    return activeSlots.some(s => s.locked)
+  }, [activeSlots])
 
   // Mouse move handler
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -342,8 +410,11 @@ export function SelectionOverlayV2({
         })
       }
     } else {
-      // Resize - only for single selection
+      // Resize
+      const isCornerHandle = ['nw', 'ne', 'sw', 'se'].includes(dragState.handle)
+
       if (selectedSlots.length === 1) {
+        // Single selection resize
         const slotName = selectedSlots[0]
         const originalFrame = dragState.originalFrames[slotName]
         if (!originalFrame) return
@@ -410,15 +481,102 @@ export function SelectionOverlayV2({
             })
           }
         }
+      } else if (selectedSlots.length > 1 && isCornerHandle) {
+        // Multi-selection resize - only on corner handles
+        // Calculate original bounding box
+        const originalBBox = dragState.originalBBox
+        if (!originalBBox || originalBBox.width === 0 || originalBBox.height === 0) return
+
+        let newBBoxX = originalBBox.x
+        let newBBoxY = originalBBox.y
+        let newBBoxWidth = originalBBox.width
+        let newBBoxHeight = originalBBox.height
+
+        // Calculate new bounding box dimensions based on drag
+        if (dragState.handle.includes('w')) {
+          newBBoxX = originalBBox.x + dx
+          newBBoxWidth = originalBBox.width - dx
+        }
+        if (dragState.handle.includes('e')) {
+          newBBoxWidth = originalBBox.width + dx
+        }
+        if (dragState.handle.includes('n')) {
+          newBBoxY = originalBBox.y + dy
+          newBBoxHeight = originalBBox.height - dy
+        }
+        if (dragState.handle.includes('s')) {
+          newBBoxHeight = originalBBox.height + dy
+        }
+
+        // Prevent negative or tiny dimensions
+        if (newBBoxWidth < 10 || newBBoxHeight < 10) return
+
+        // Calculate scale factors
+        const scaleX = newBBoxWidth / originalBBox.width
+        const scaleY = newBBoxHeight / originalBBox.height
+
+        // Apply transformations to all selected slots
+        selectedSlots.forEach(slotName => {
+          const originalFrame = dragState.originalFrames[slotName]
+          if (!originalFrame) return
+
+          // Calculate relative position within original bounding box
+          const relX = (originalFrame.x - originalBBox.x) / originalBBox.width
+          const relY = (originalFrame.y - originalBBox.y) / originalBBox.height
+          const relWidth = originalFrame.width / originalBBox.width
+          const relHeight = originalFrame.height / originalBBox.height
+
+          // Calculate new position and size
+          let scaledX = newBBoxX + relX * newBBoxWidth
+          let scaledY = newBBoxY + relY * newBBoxHeight
+          let scaledWidth = relWidth * newBBoxWidth
+          let scaledHeight = relHeight * newBBoxHeight
+
+          // Apply grid snapping if enabled
+          if (snapToGrid) {
+            scaledX = applySnap(scaledX)
+            scaledY = applySnap(scaledY)
+            scaledWidth = applySnap(scaledWidth)
+            scaledHeight = applySnap(scaledHeight)
+          }
+
+          // Update frame
+          onFrameChange(slotName, {
+            x: scaledX,
+            y: scaledY,
+            width: scaledWidth,
+            height: scaledHeight
+          })
+
+          // Scale font size for text/button slots
+          const slot = slots.find(s => s.name === slotName)
+          if (slot && (slot.type === 'text' || slot.type === 'button')) {
+            const originalFontSize = dragState.originalFontSizes?.[slotName]
+            if (originalFontSize) {
+              const lastFontSize = lastFontSizesRef.current[slotName]
+              const newFontSize = Math.max(6, Math.round(originalFontSize * scaleY))
+
+              // Only update if font size changed (avoid unnecessary updates)
+              if (lastFontSize !== newFontSize) {
+                useEditorStore.getState().updateSlot(slotName, { fontSize: newFontSize })
+                lastFontSizesRef.current[slotName] = newFontSize
+              }
+            }
+          }
+        })
+
+        // Clear guides for multi-selection (snapping disabled for groups)
+        setActiveGuides([])
       }
     }
-  }, [dragState, screenToSVG, selectedSlots, onFrameChange, snapToGrid, applySnap, snapFrames, viewBox, smartSnapOptions, scale, snapState])
+  }, [dragState, screenToSVG, selectedSlots, onFrameChange, snapToGrid, applySnap, snapFrames, viewBox, smartSnapOptions, scale, snapState, slots])
 
   // Mouse up handler
   const handleMouseUp = useCallback(() => {
     setDragState(null)
     setActiveGuides([])
     setSnapState({})
+    lastFontSizesRef.current = {}
   }, [])
 
   // Attach global mouse handlers while dragging
@@ -446,7 +604,6 @@ export function SelectionOverlayV2({
   const bbox = getBoundingBox()
   if (!bbox) return null
 
-  const activeSlots = selectedSlots.map(name => slots.find(s => s.name === name)).filter(Boolean) as Slot[]
   const allLocked = activeSlots.every(s => (s as any).locked)
   if (allLocked) return null
 
@@ -491,7 +648,11 @@ export function SelectionOverlayV2({
   const isSingleSelection = selectedSlots.length === 1
 
   return (
-    <g className="selection-overlay-v2" onDoubleClick={handleDoubleClick}>
+    <g
+      className="selection-overlay-v2"
+      onDoubleClick={handleDoubleClick}
+      style={shiftPressed ? { pointerEvents: 'none' } : undefined}
+    >
       {/* Transparent drag area */}
       <rect
         x={x}
@@ -499,8 +660,8 @@ export function SelectionOverlayV2({
         width={width}
         height={height}
         fill="transparent"
-        pointerEvents="all"
-        style={{ cursor: 'move' }}
+        pointerEvents={shiftPressed ? 'none' : 'all'}
+        style={{ cursor: shiftPressed ? 'default' : 'move' }}
         onMouseDown={(e) => handleMouseDown('move', e)}
       />
 
@@ -513,20 +674,38 @@ export function SelectionOverlayV2({
         fill="none"
         stroke="#0066FF"
         strokeWidth={borderWidth}
-        strokeDasharray="none"
+        strokeDasharray={isSingleSelection ? 'none' : `${4 / scale} ${4 / scale}`}
         rx={borderRadius}
         style={{ pointerEvents: 'none' }}
       />
 
-      {/* Resize handles - only for single selection */}
+      {!isSingleSelection && selectedSlots.map(name => {
+        const frame = frames[name]
+        if (!frame) return null
+        return (
+          <rect
+            key={`group-slot-${name}`}
+            x={frame.x}
+            y={frame.y}
+            width={frame.width}
+            height={frame.height}
+            fill="none"
+            stroke="#0066FF"
+            strokeWidth={borderWidth}
+            pointerEvents="none"
+          />
+        )
+      })}
+
+      {/* Corner handles - always shown */}
+      {renderCornerHandle(x, y, 'nw')}
+      {renderCornerHandle(x + width, y, 'ne')}
+      {renderCornerHandle(x + width, y + height, 'se')}
+      {renderCornerHandle(x, y + height, 'sw')}
+
+      {/* Edge handles and rotation - only for single selection */}
       {isSingleSelection && (
         <>
-          {/* Corner handles */}
-          {renderCornerHandle(x, y, 'nw')}
-          {renderCornerHandle(x + width, y, 'ne')}
-          {renderCornerHandle(x + width, y + height, 'se')}
-          {renderCornerHandle(x, y + height, 'sw')}
-
           {/* Edge handles */}
           {renderEdgeHandle(x + width / 2, y, 'n', 'n-resize', true)}
           {renderEdgeHandle(x + width, y + height / 2, 'e', 'e-resize', false)}
@@ -612,6 +791,103 @@ export function SelectionOverlayV2({
           >
             {selectedSlots.length}
           </text>
+        </g>
+      )}
+
+      {/* Group operations toolbar - only for multi-selection */}
+      {!isSingleSelection && (
+        <g transform={`translate(${x + width / 2}, ${y - 40 / scale})`}>
+          {/* Toolbar background */}
+          <rect
+            x={-90 / scale}
+            y={-16 / scale}
+            width={180 / scale}
+            height={32 / scale}
+            fill="#1f2937"
+            rx={6 / scale}
+            stroke="white"
+            strokeWidth={1 / scale}
+          />
+
+          {/* Group/Ungroup button */}
+          <g transform={`translate(${-60 / scale}, 0)`}>
+            <rect
+              x={-10 / scale}
+              y={-10 / scale}
+              width={20 / scale}
+              height={20 / scale}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseDown={handleGroupToggle}
+            />
+            <g transform={`scale(${1 / scale})`} style={{ pointerEvents: 'none' }}>
+              <foreignObject x={-8} y={-8} width={16} height={16}>
+                {isGrouped ? (
+                  <Ungroup size={16} color="white" />
+                ) : (
+                  <Group size={16} color="white" />
+                )}
+              </foreignObject>
+            </g>
+          </g>
+
+          {/* Lock/Unlock button */}
+          <g transform={`translate(${-20 / scale}, 0)`}>
+            <rect
+              x={-10 / scale}
+              y={-10 / scale}
+              width={20 / scale}
+              height={20 / scale}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseDown={handleLockToggle}
+            />
+            <g transform={`scale(${1 / scale})`} style={{ pointerEvents: 'none' }}>
+              <foreignObject x={-8} y={-8} width={16} height={16}>
+                {isLocked ? (
+                  <Unlock size={16} color="white" />
+                ) : (
+                  <Lock size={16} color="white" />
+                )}
+              </foreignObject>
+            </g>
+          </g>
+
+          {/* Duplicate button */}
+          <g transform={`translate(${20 / scale}, 0)`}>
+            <rect
+              x={-10 / scale}
+              y={-10 / scale}
+              width={20 / scale}
+              height={20 / scale}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseDown={handleDuplicate}
+            />
+            <g transform={`scale(${1 / scale})`} style={{ pointerEvents: 'none' }}>
+              <foreignObject x={-8} y={-8} width={16} height={16}>
+                <Copy size={16} color="white" />
+              </foreignObject>
+            </g>
+          </g>
+
+          {/* Delete button */}
+          <g transform={`translate(${60 / scale}, 0)`}>
+            <rect
+              x={-10 / scale}
+              y={-10 / scale}
+              width={20 / scale}
+              height={20 / scale}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseDown={handleDelete}
+            />
+            <g transform={`scale(${1 / scale})`} style={{ pointerEvents: 'none' }}>
+              <foreignObject x={-8} y={-8} width={16} height={16}>
+                <Trash2 size={16} color="#ef4444" />
+              </foreignObject>
+            </g>
+          </g>
         </g>
       )}
 

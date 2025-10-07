@@ -84,6 +84,7 @@ export interface Slot {
   ry?: number
   visible?: boolean
   locked?: boolean
+  groupId?: string
   markerStart?: boolean | string
   markerEnd?: boolean | string
 

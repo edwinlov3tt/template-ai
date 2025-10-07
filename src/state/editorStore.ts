@@ -3,6 +3,7 @@ import type { Template, Slot, Page } from '../schema/types'
 import { shapeRegistry, type ShapeId } from '../shapes/registry'
 import { initializeHistory, addVersion, undo as undoHistory, redo as redoHistory, canUndo as checkCanUndo, canRedo as checkCanRedo, type HistoryState } from '../history/versionControl'
 import { migrateTemplate } from '../utils/templateMigration'
+import type { Paint } from '../editor/color/types'
 
 export interface EditorState {
   // Template & content
@@ -37,6 +38,10 @@ export interface EditorState {
   setHoveredSlot: (slotName: string | null) => void
   canvasSelected: boolean
   setCanvasSelected: (selected: boolean) => void
+  groupSlots: (slotNames: string[]) => void
+  lockSlots: (slotNames: string[], locked: boolean) => void
+  duplicateSlots: (slotNames: string[]) => string[]
+  deleteSlots: (slotNames: string[]) => void
 
   // Text editing
   editingSlot: string | null
@@ -50,6 +55,18 @@ export interface EditorState {
   setZoom: (zoom: number) => void
   gridVisible: boolean
   toggleGrid: () => void
+
+  // Color panel
+  documentSwatches: Paint[]
+  recentPaints: Paint[]
+  colorPanelOpen: boolean
+  activePanelSection: 'main' | 'solid-picker' | 'photo-colors' | 'default-colors'
+  addDocumentSwatch: (paint: Paint) => void
+  removeDocumentSwatch: (index: number) => void
+  addRecentPaint: (paint: Paint) => void
+  updateSlotFill: (slotId: string, paint: Paint) => void
+  toggleColorPanel: () => void
+  setActivePanelSection: (section: 'main' | 'solid-picker' | 'photo-colors' | 'default-colors') => void
 
   // Slot modifications
   updateSlot: (slotName: string, updates: Partial<Slot>, description?: string) => void
@@ -82,6 +99,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   canvasSize: { id: '1:1', w: 1080, h: 1080 },
   zoom: 100,
   gridVisible: false,
+  documentSwatches: [],
+  recentPaints: [],
+  colorPanelOpen: false,
+  activePanelSection: 'main',
 
   // Template actions
   setTemplate: (template) => {
@@ -149,10 +170,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   selectSlot: (slotName) => {
-    const { selectedSlots } = get()
-    if (!selectedSlots.includes(slotName)) {
-      set({ selectedSlots: [slotName], canvasSelected: false })
+    const { selectedSlots, template, currentPageId } = get()
+    if (selectedSlots.includes(slotName)) {
+      return
     }
+
+    let newSelection = [slotName]
+    if (template && currentPageId) {
+      const page = template.pages.find(p => p.id === currentPageId)
+      const slot = page?.slots.find(s => s.name === slotName)
+      if (slot?.groupId) {
+        newSelection = page!.slots
+          .filter(s => s.groupId === slot.groupId)
+          .map(s => s.name)
+      }
+    }
+
+    set({ selectedSlots: newSelection, canvasSelected: false })
   },
 
   deselectAll: () => set({ selectedSlots: [], canvasSelected: false }),
@@ -165,6 +199,196 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } else {
       set({ canvasSelected: false })
     }
+  },
+
+  groupSlots: (slotNames) => {
+    const { template, history, currentPageId } = get()
+    if (!template || !currentPageId || slotNames.length === 0) return
+
+    const pageIndex = template.pages.findIndex(p => p.id === currentPageId)
+    if (pageIndex === -1) return
+
+    const page = template.pages[pageIndex]
+    const selectedSlots = page.slots.filter(slot => slotNames.includes(slot.name))
+    if (selectedSlots.length === 0) return
+
+    const uniqueGroupIds = new Set(selectedSlots.map(slot => slot.groupId).filter(Boolean))
+    const shouldUngroup = uniqueGroupIds.size === 1 && selectedSlots.every(slot => slot.groupId)
+    const targetGroupId = shouldUngroup ? undefined : `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+    const newSlots = page.slots.map(slot =>
+      slotNames.includes(slot.name) ? { ...slot, groupId: targetGroupId } : slot
+    )
+
+    const newPages = template.pages.map((p, idx) =>
+      idx === pageIndex ? { ...p, slots: newSlots } : p
+    )
+
+    const newTemplate: Template = {
+      ...template,
+      pages: newPages
+    }
+
+    set({
+      template: newTemplate,
+      history: history ? addVersion(history, newTemplate, shouldUngroup ? 'Ungrouped slots' : 'Grouped slots') : history
+    })
+  },
+
+  lockSlots: (slotNames, locked) => {
+    const { template, history, currentPageId } = get()
+    if (!template || !currentPageId || slotNames.length === 0) return
+
+    const newPages = template.pages.map(page => {
+      if (page.id !== currentPageId) return page
+      return {
+        ...page,
+        slots: page.slots.map(slot =>
+          slotNames.includes(slot.name) ? { ...slot, locked } : slot
+        )
+      }
+    })
+
+    const newTemplate: Template = {
+      ...template,
+      pages: newPages
+    }
+
+    set({
+      template: newTemplate,
+      history: history ? addVersion(history, newTemplate, locked ? 'Locked slots' : 'Unlocked slots') : history
+    })
+  },
+
+  duplicateSlots: (slotNames) => {
+    const { template, history, currentPageId, canvasSize } = get()
+    if (!template || !currentPageId || slotNames.length === 0) return []
+
+    const pageIndex = template.pages.findIndex(p => p.id === currentPageId)
+    if (pageIndex === -1) return []
+
+    const page = template.pages[pageIndex]
+    const currentRatio = canvasSize.id
+    const existingNames = new Set<string>(page.slots.map(slot => slot.name))
+    const newSlots = [...page.slots]
+    const newFrames = { ...page.frames }
+    if (!newFrames[currentRatio]) {
+      newFrames[currentRatio] = {}
+    }
+
+    const allNames = new Set<string>(template.pages.flatMap(p => p.slots.map(s => s.name)))
+    const newSlotNames: string[] = []
+
+    let maxZ = Math.max(0, ...page.slots.map(slot => slot.z))
+
+    const generateUniqueName = (base: string) => {
+      let counter = 1
+      let candidate = `${base}-${counter}`
+      while (allNames.has(candidate)) {
+        counter += 1
+        candidate = `${base}-${counter}`
+      }
+      allNames.add(candidate)
+      existingNames.add(candidate)
+      return candidate
+    }
+
+    slotNames.forEach((slotName, index) => {
+      const slot = page.slots.find(s => s.name === slotName)
+      if (!slot) return
+      const frameByRatio = page.frames[currentRatio]?.[slotName]
+      if (!frameByRatio) return
+
+      const baseName = slotName.replace(/-\d+$/, '')
+      const newName = generateUniqueName(baseName)
+      const duplicatedSlot: Slot = {
+        ...slot,
+        name: newName,
+        z: ++maxZ
+      }
+
+      newSlots.push(duplicatedSlot)
+
+      // Copy frames for each ratio
+      const updatedFrames = { ...newFrames }
+      Object.entries(page.frames).forEach(([ratio, ratioFrames]) => {
+        if (!updatedFrames[ratio]) {
+          updatedFrames[ratio] = {}
+        }
+        const sourceFrame = ratioFrames?.[slotName]
+        if (sourceFrame) {
+          updatedFrames[ratio][newName] = {
+            ...sourceFrame,
+            x: sourceFrame.x + 20 + index * 10,
+            y: sourceFrame.y + 20 + index * 10
+          }
+        }
+      })
+      Object.assign(newFrames, updatedFrames)
+
+      newSlotNames.push(newName)
+    })
+
+    const updatedPage: Page = {
+      ...page,
+      slots: newSlots,
+      frames: newFrames
+    }
+
+    const newTemplate: Template = {
+      ...template,
+      pages: template.pages.map((p, idx) => (idx === pageIndex ? updatedPage : p))
+    }
+
+    set({
+      template: newTemplate,
+      history: history ? addVersion(history, newTemplate, `Duplicated slots`) : history,
+      selectedSlots: newSlotNames,
+      canvasSelected: false
+    })
+
+    return newSlotNames
+  },
+
+  deleteSlots: (slotNames) => {
+    const { template, history, currentPageId } = get()
+    if (!template || !currentPageId || slotNames.length === 0) return
+
+    const pageIndex = template.pages.findIndex(p => p.id === currentPageId)
+    if (pageIndex === -1) return
+
+    const page = template.pages[pageIndex]
+
+    const remainingSlots = page.slots.filter(slot => !slotNames.includes(slot.name))
+
+    const newFrames: typeof page.frames = {}
+    Object.entries(page.frames).forEach(([ratio, ratioFrames]) => {
+      const filteredFrames: Record<string, typeof ratioFrames[string]> = {}
+      Object.entries(ratioFrames).forEach(([name, frame]) => {
+        if (!slotNames.includes(name)) {
+          filteredFrames[name] = frame
+        }
+      })
+      newFrames[ratio] = filteredFrames
+    })
+
+    const updatedPage: Page = {
+      ...page,
+      slots: remainingSlots,
+      frames: newFrames
+    }
+
+    const newTemplate: Template = {
+      ...template,
+      pages: template.pages.map((p, idx) => (idx === pageIndex ? updatedPage : p))
+    }
+
+    set({
+      template: newTemplate,
+      selectedSlots: [],
+      canvasSelected: false,
+      history: history ? addVersion(history, newTemplate, `Deleted slots`) : history
+    })
   },
 
   // Text editing actions
@@ -383,6 +607,74 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setCanvasSize: (size) => set({ canvasSize: size }),
   setZoom: (zoom) => set({ zoom }),
   toggleGrid: () => set((state) => ({ gridVisible: !state.gridVisible })),
+
+  // Color panel actions
+  addDocumentSwatch: (paint) => {
+    const { documentSwatches } = get()
+    // Check if paint already exists (prevent duplicates)
+    const paintExists = documentSwatches.some(swatch =>
+      JSON.stringify(swatch) === JSON.stringify(paint)
+    )
+    if (!paintExists) {
+      set({ documentSwatches: [...documentSwatches, paint] })
+    }
+  },
+
+  removeDocumentSwatch: (index) => {
+    const { documentSwatches } = get()
+    set({ documentSwatches: documentSwatches.filter((_, i) => i !== index) })
+  },
+
+  addRecentPaint: (paint) => {
+    const { recentPaints } = get()
+    // Remove if already exists (to avoid duplicates)
+    const filtered = recentPaints.filter(p =>
+      JSON.stringify(p) !== JSON.stringify(paint)
+    )
+    // Add to front, limit to 10 items
+    const newRecentPaints = [paint, ...filtered].slice(0, 10)
+    set({ recentPaints: newRecentPaints })
+  },
+
+  updateSlotFill: (slotId, paint) => {
+    const { template, history, currentPageId } = get()
+    if (!template || !currentPageId) return
+
+    // Add to recent paints
+    get().addRecentPaint(paint)
+
+    // Update the slot's fill property
+    const newPages = template.pages.map(page => {
+      if (page.id !== currentPageId) return page
+
+      return {
+        ...page,
+        slots: page.slots.map(slot =>
+          slot.name === slotId
+            ? { ...slot, fill: paint.kind === 'solid' ? paint.color : undefined }
+            : slot
+        )
+      }
+    })
+
+    const newTemplate: Template = {
+      ...template,
+      pages: newPages
+    }
+
+    set({
+      template: newTemplate,
+      history: history ? addVersion(history, newTemplate, `Updated ${slotId} fill`) : history
+    })
+  },
+
+  toggleColorPanel: () => {
+    set((state) => ({ colorPanelOpen: !state.colorPanelOpen }))
+  },
+
+  setActivePanelSection: (section) => {
+    set({ activePanelSection: section })
+  },
 
   // Slot modification actions
   updateSlot: (slotName, updates, description) => {

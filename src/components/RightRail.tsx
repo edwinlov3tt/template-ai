@@ -8,6 +8,11 @@ import { ContrastFixModal } from './ContrastFixModal'
 import type { AutoFixSuggestion } from '../accessibility/contrastUtils'
 import { ColorPicker } from './ColorPicker'
 import { getDuplicateShortcut, getLockShortcut, getDeleteShortcut } from '../utils/keyboardShortcuts'
+
+type LayerSelectionOptions = {
+  extend?: boolean
+  toggle?: boolean
+}
 interface RightRailProps {
   template: Template | null
   selectedLayer?: string | null
@@ -16,7 +21,7 @@ interface RightRailProps {
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
   onRemoveSlot?: (slotName: string) => void
-  onSelectSlot?: (slotName: string, pageId: string) => void
+  onSelectSlot?: (slotName: string, pageId: string, options?: LayerSelectionOptions) => void
   onReorderSlots?: (slotNames: string[]) => void
 }
 
@@ -129,7 +134,7 @@ interface LayersPanelProps {
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
   onRemoveSlot?: (slotName: string) => void
-  onSelectSlot?: (slotName: string, pageId: string) => void
+  onSelectSlot?: (slotName: string, pageId: string, options?: LayerSelectionOptions) => void
   onReorderSlots?: (slotNames: string[]) => void
 }
 
@@ -268,7 +273,7 @@ interface LayerItemProps {
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
   onRemoveSlot?: (slotName: string) => void
-  onSelectSlot?: (slotName: string, pageId: string) => void
+  onSelectSlot?: (slotName: string, pageId: string, options?: LayerSelectionOptions) => void
 }
 
 function LayerItem({ slotId, slot, pageId, selectedSlots, contrastInfo, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot }: LayerItemProps) {
@@ -296,9 +301,12 @@ function LayerItem({ slotId, slot, pageId, selectedSlots, contrastInfo, onContra
 
   return (
     <motion.div
-      onClick={() => {
+      onClick={(e) => {
         if (onSelectSlot) {
-          onSelectSlot(slot.name, pageId)
+          onSelectSlot(slot.name, pageId, {
+            extend: e.shiftKey || e.metaKey || e.ctrlKey,
+            toggle: e.metaKey || e.ctrlKey
+          })
         }
       }}
       whileHover={{ scale: 1.01 }}
