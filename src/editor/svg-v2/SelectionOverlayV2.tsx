@@ -2,8 +2,9 @@ import React, { useState, useRef, useCallback } from 'react'
 import type { Slot } from '../../schema/types'
 import type { CoordinateSystem } from '../core/CoordinateSystem'
 import { RotateCw } from 'lucide-react'
-import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState } from '../utils/smartSnapping'
+import { calculateSmartSnap, type SmartSnapOptions, type SnapGuide, type SnapState, type Frame } from '../utils/smartSnapping'
 import { SmartGuides } from '../svg/SmartGuides'
+import { useEditorStore } from '../../state/editorStore'
 
 export interface SelectionOverlayV2Props {
   svgElement: SVGSVGElement
@@ -39,10 +40,10 @@ export function SelectionOverlayV2({
   onToggleLockSlot,
   onRemoveSlot,
   snapToGrid = false,
-  snapGridSize = 10,
+  snapGridSize = 4,
   smartSnapOptions = {
     enabled: true,
-    threshold: 10,
+    threshold: 4,
     snapToEdges: true,
     snapToCenter: true,
     snapToObjects: true,
@@ -52,6 +53,19 @@ export function SelectionOverlayV2({
   pendingAutoDrag,
   onPendingAutoDragConsumed
 }: SelectionOverlayV2Props) {
+  // Get startEditing action from store for double-click handling
+  const startEditing = useEditorStore(state => state.startEditing)
+
+  const snapFrames = React.useMemo(() => {
+    const filtered: Record<string, Frame> = {}
+    Object.entries(frames).forEach(([name, frame]) => {
+      if (!selectedSlots.includes(name)) {
+        filtered[name] = frame
+      }
+    })
+    return filtered
+  }, [frames, selectedSlots])
+
   const [dragState, setDragState] = useState<{
     handle: DragHandle
     startX: number
@@ -74,7 +88,7 @@ export function SelectionOverlayV2({
   const handleSize = 12 / scale
   const edgeHandleWidth = 20 / scale
   const edgeHandleHeight = 8 / scale
-  const borderRadius = 8 / scale
+  const borderRadius = selectedSlots.length === 1 ? 8 / scale : 0
   const borderWidth = 2 / scale
   const rotateHandleDistance = 40 / scale
   const rotateHandleRadius = 12 / scale
@@ -149,8 +163,58 @@ export function SelectionOverlayV2({
   const handleMouseDown = useCallback((handle: DragHandle, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
+
+    // Double-click is now handled by native onDoubleClick on the main group
+    // This handler only manages drag operations
     beginDrag(handle, e.clientX, e.clientY)
   }, [beginDrag])
+
+  // Handle double-click to enter text editing mode
+  const handleDoubleClick = useCallback(() => {
+    if (selectedSlots.length !== 1) return
+
+    const slotName = selectedSlots[0]
+    const slot = slots.find(s => s.name === slotName)
+    if (!slot || slot.locked) return
+
+    if (slot.type === 'text' || slot.type === 'button') {
+      startEditing(slotName)
+      return
+    }
+
+    if (slot.type === 'shape') {
+      const shapeFrame = frames[slotName]
+      if (!shapeFrame) return
+
+      const paddingX = Math.min(24, shapeFrame.width * 0.1)
+      const paddingY = Math.min(24, shapeFrame.height * 0.1)
+      const textWidth = Math.max(shapeFrame.width - paddingX * 2, shapeFrame.width * 0.6)
+      const textHeight = Math.max(shapeFrame.height - paddingY * 2, shapeFrame.height * 0.6)
+
+      const textFrame = {
+        x: shapeFrame.x + (shapeFrame.width - textWidth) / 2,
+        y: shapeFrame.y + (shapeFrame.height - textHeight) / 2,
+        width: textWidth,
+        height: textHeight
+      }
+
+      const store = useEditorStore.getState()
+      store.addSlot('text', {
+        textStyle: 'body',
+        frame: textFrame,
+        textOverrides: {
+          textAlign: 'center',
+          color: '#111827',
+          fill: '#111827'
+        }
+      })
+
+      const newSlotName = useEditorStore.getState().selectedSlots[0]
+      if (newSlotName) {
+        startEditing(newSlotName)
+      }
+    }
+  }, [selectedSlots, slots, startEditing, frames])
 
   // Mouse move handler
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -181,13 +245,17 @@ export function SelectionOverlayV2({
 
     // Adjust snap threshold based on velocity
     const velocityFactor = Math.max(0, 1 - Math.min(1, velocity / 2))
-    const adjustedSnapOptions = {
+    const speedAdjustedOptions = {
       ...smartSnapOptions,
       threshold: smartSnapOptions.threshold * velocityFactor
     }
+    const disableSmartSnap = !smartSnapOptions.enabled || e.metaKey || e.ctrlKey
 
     if (dragState.handle === 'move') {
       // Move all selected slots
+      let snappedOffsetX: number | null = null
+      let snappedOffsetY: number | null = null
+
       selectedSlots.forEach(slotName => {
         const originalFrame = dragState.originalFrames[slotName]
         if (!originalFrame) return
@@ -201,13 +269,22 @@ export function SelectionOverlayV2({
           newY = applySnap(newY)
         }
 
-        // Apply smart snapping (only for primary slot)
-        if (slotName === selectedSlots[0]) {
+        if (disableSmartSnap) {
+          if (slotName === selectedSlots[0]) {
+            setActiveGuides([])
+            setSnapState({})
+            snappedOffsetX = newX - originalFrame.x
+            snappedOffsetY = newY - originalFrame.y
+          } else if (snappedOffsetX !== null && snappedOffsetY !== null) {
+            newX = originalFrame.x + snappedOffsetX
+            newY = originalFrame.y + snappedOffsetY
+          }
+        } else if (slotName === selectedSlots[0]) {
           const snapResult = calculateSmartSnap(
             { x: newX, y: newY, width: originalFrame.width, height: originalFrame.height },
-            frames,
+            snapFrames,
             viewBox,
-            adjustedSnapOptions,
+            speedAdjustedOptions,
             'move',
             snapState,
             scale
@@ -215,7 +292,6 @@ export function SelectionOverlayV2({
 
           setActiveGuides(snapResult.guides)
 
-          // Update snap state
           const newSnapState: SnapState = {}
           if (snapResult.guides.some(g => g.type === 'vertical')) {
             const vGuide = snapResult.guides.find(g => g.type === 'vertical')
@@ -239,6 +315,11 @@ export function SelectionOverlayV2({
 
           newX = snapResult.x
           newY = snapResult.y
+          snappedOffsetX = newX - originalFrame.x
+          snappedOffsetY = newY - originalFrame.y
+        } else if (snappedOffsetX !== null && snappedOffsetY !== null) {
+          newX = originalFrame.x + snappedOffsetX
+          newY = originalFrame.y + snappedOffsetY
         }
 
         onFrameChange(slotName, { x: newX, y: newY })
@@ -295,31 +376,43 @@ export function SelectionOverlayV2({
           newHeight = applySnap(newHeight)
         }
 
-        // Apply smart snapping
-        const snapResult = calculateSmartSnap(
-          { x: newX, y: newY, width: newWidth, height: newHeight },
-          frames,
-          viewBox,
-          adjustedSnapOptions,
-          dragState.handle as 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw',
-          snapState,
-          scale
-        )
+        if (disableSmartSnap) {
+          setActiveGuides([])
+          setSnapState({})
 
-        setActiveGuides(snapResult.guides)
+          if (newWidth > 10 && newHeight > 10) {
+            onFrameChange(slotName, {
+              x: newX,
+              y: newY,
+              width: newWidth,
+              height: newHeight
+            })
+          }
+        } else {
+          const snapResult = calculateSmartSnap(
+            { x: newX, y: newY, width: newWidth, height: newHeight },
+            snapFrames,
+            viewBox,
+            speedAdjustedOptions,
+            dragState.handle as 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw',
+            snapState,
+            scale
+          )
 
-        // Prevent negative dimensions
-        if ((snapResult.width || newWidth) > 10 && (snapResult.height || newHeight) > 10) {
-          onFrameChange(slotName, {
-            x: snapResult.x,
-            y: snapResult.y,
-            width: snapResult.width,
-            height: snapResult.height
-          })
+          setActiveGuides(snapResult.guides)
+
+          if ((snapResult.width || newWidth) > 10 && (snapResult.height || newHeight) > 10) {
+            onFrameChange(slotName, {
+              x: snapResult.x,
+              y: snapResult.y,
+              width: snapResult.width,
+              height: snapResult.height
+            })
+          }
         }
       }
     }
-  }, [dragState, screenToSVG, selectedSlots, onFrameChange, snapToGrid, applySnap, frames, viewBox, smartSnapOptions, scale, snapState])
+  }, [dragState, screenToSVG, selectedSlots, onFrameChange, snapToGrid, applySnap, snapFrames, viewBox, smartSnapOptions, scale, snapState])
 
   // Mouse up handler
   const handleMouseUp = useCallback(() => {
@@ -398,7 +491,7 @@ export function SelectionOverlayV2({
   const isSingleSelection = selectedSlots.length === 1
 
   return (
-    <g className="selection-overlay-v2">
+    <g className="selection-overlay-v2" onDoubleClick={handleDoubleClick}>
       {/* Transparent drag area */}
       <rect
         x={x}
@@ -418,9 +511,9 @@ export function SelectionOverlayV2({
         width={width}
         height={height}
         fill="none"
-        stroke={isSingleSelection ? '#0066FF' : '#FF6B00'}
+        stroke="#0066FF"
         strokeWidth={borderWidth}
-        strokeDasharray={isSingleSelection ? 'none' : `${4 / scale} ${4 / scale}`}
+        strokeDasharray="none"
         rx={borderRadius}
         style={{ pointerEvents: 'none' }}
       />
@@ -504,7 +597,7 @@ export function SelectionOverlayV2({
             cx="0"
             cy="0"
             r={10 / scale}
-            fill="#FF6B00"
+            fill="#0066FF"
             stroke="white"
             strokeWidth={borderWidth}
           />

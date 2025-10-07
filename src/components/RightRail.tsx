@@ -1,25 +1,26 @@
 import React, { useState, useMemo } from 'react'
 import { Lock, Unlock, Eye, EyeOff, GripVertical, MoreVertical, Edit3, FileText, Copy, Trash2 } from 'lucide-react'
 import { Tooltip } from 'antd'
+import { Reorder, motion } from 'framer-motion'
 import type { Template, Slot } from '../schema/types'
 import { checkTemplateContrast, getContrastBadgeColor, getContrastBadgeLabel, type LayerContrastInfo } from '../accessibility/contrastChecker'
 import { ContrastFixModal } from './ContrastFixModal'
 import type { AutoFixSuggestion } from '../accessibility/contrastUtils'
 import { ColorPicker } from './ColorPicker'
 import { getDuplicateShortcut, getLockShortcut, getDeleteShortcut } from '../utils/keyboardShortcuts'
-
 interface RightRailProps {
   template: Template | null
   selectedLayer?: string | null
+  selectedSlots?: string[]
   onUpdateSlot?: (slotId: string, updates: Partial<Slot>) => void
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
   onRemoveSlot?: (slotName: string) => void
   onSelectSlot?: (slotName: string, pageId: string) => void
+  onReorderSlots?: (slotNames: string[]) => void
 }
 
-export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot }: RightRailProps) {
-  const [activeTab, setActiveTab] = useState<'layers' | 'properties'>('layers')
+export function RightRail({ template, selectedLayer, selectedSlots, onUpdateSlot, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, onReorderSlots }: RightRailProps) {
   const [fixModalOpen, setFixModalOpen] = useState(false)
   const [fixModalData, setFixModalData] = useState<LayerContrastInfo | null>(null)
 
@@ -56,8 +57,8 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
       }}>
         {/* Header */}
         <div style={{
-          padding: '8px 12px',
           borderBottom: '1px solid #e5e7eb',
+          padding: '8px 12px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between'
@@ -66,15 +67,6 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
                 Layers
-              </span>
-              <span style={{
-                fontSize: '11px',
-                color: '#9ca3af',
-                background: '#f3f4f6',
-                padding: '2px 6px',
-                borderRadius: '4px'
-              }}>
-                {template?.pages.reduce((total, page) => total + page.slots.length, 0) || 0}
               </span>
             </div>
           )}
@@ -95,11 +87,12 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
           </button>
         </div>
 
-        {/* Layers Content */}
+        {/* Content */}
         {!isCollapsed && (
-          <div style={{ flex: 1, overflow: 'auto' }}>
+          <div style={{ flex: 1, overflow: 'auto', overflowX: 'hidden' }}>
             <LayersPanel
               template={template}
+              selectedSlots={selectedSlots || []}
               onContrastBadgeClick={(info) => {
                 setFixModalData(info)
                 setFixModalOpen(true)
@@ -108,6 +101,7 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
               onToggleLockSlot={onToggleLockSlot}
               onRemoveSlot={onRemoveSlot}
               onSelectSlot={onSelectSlot}
+              onReorderSlots={onReorderSlots}
             />
           </div>
         )}
@@ -128,44 +122,18 @@ export function RightRail({ template, selectedLayer, onUpdateSlot, onDuplicateSl
   )
 }
 
-interface TabButtonProps {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}
-
-function TabButton({ active, onClick, children }: TabButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        flex: 1,
-        background: active ? '#ffffff' : '#f9fafb',
-        border: 'none',
-        borderBottom: active ? '2px solid #3b82f6' : '2px solid transparent',
-        padding: '12px',
-        fontSize: '13px',
-        fontWeight: active ? '600' : '500',
-        color: active ? '#111827' : '#6b7280',
-        cursor: 'pointer',
-        transition: 'all 0.15s'
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 interface LayersPanelProps {
   template: Template | null
+  selectedSlots: string[]
   onContrastBadgeClick?: (info: LayerContrastInfo) => void
   onDuplicateSlot?: (slotName: string) => void
   onToggleLockSlot?: (slotName: string) => void
   onRemoveSlot?: (slotName: string) => void
   onSelectSlot?: (slotName: string, pageId: string) => void
+  onReorderSlots?: (slotNames: string[]) => void
 }
 
-function LayersPanel({ template, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot }: LayersPanelProps) {
+function LayersPanel({ template, selectedSlots, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot, onReorderSlots }: LayersPanelProps) {
   if (!template) {
     return (
       <div style={{
@@ -190,8 +158,8 @@ function LayersPanel({ template, onContrastBadgeClick, onDuplicateSlot, onToggle
   const showPageHeaders = template.pages.length > 1
 
   return (
-    <div style={{ padding: '12px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: showPageHeaders ? '12px' : '4px' }}>
+    <div style={{ padding: '12px 12px 12px 12px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: showPageHeaders ? '12px' : '4px', paddingTop: '4px' }}>
         {template.pages.map((page) => {
           // Sort slots by z-index descending (top layers first)
           const sortedSlots = [...page.slots].sort((a, b) => b.z - a.z)
@@ -213,36 +181,75 @@ function LayersPanel({ template, onContrastBadgeClick, onDuplicateSlot, onToggle
                 </div>
               )}
 
-              {/* Slots for this page */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {sortedSlots.map((slot) => (
-                  <LayerItem
-                    key={slot.name}
-                    slotId={slot.name}
-                    slot={slot}
-                    pageId={page.id}
-                    contrastInfo={contrastInfo.get(slot.name)}
-                    onContrastBadgeClick={onContrastBadgeClick}
-                    onDuplicateSlot={onDuplicateSlot}
-                    onToggleLockSlot={onToggleLockSlot}
-                    onRemoveSlot={onRemoveSlot}
-                    onSelectSlot={onSelectSlot}
-                  />
-                ))}
-
-                {/* Empty state for page with no slots */}
-                {sortedSlots.length === 0 && (
-                  <div style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    color: '#9ca3af',
-                    fontSize: '12px',
-                    fontStyle: 'italic'
-                  }}>
-                    No layers on this page
-                  </div>
-                )}
-              </div>
+              {/* Slots for this page - Reorder.Group for smooth drag-and-drop */}
+              {sortedSlots.length === 0 ? (
+                <div style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  color: '#9ca3af',
+                  fontSize: '12px',
+                  fontStyle: 'italic'
+                }}>
+                  No layers on this page
+                </div>
+              ) : (
+                <Reorder.Group
+                  axis="y"
+                  values={sortedSlots}
+                  onReorder={(newOrder) => {
+                    if (onReorderSlots) {
+                      onReorderSlots(newOrder.map(s => s.name))
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    position: 'relative',
+                    listStyle: 'none',
+                    padding: 0,
+                    margin: 0
+                  }}
+                >
+                  {sortedSlots.map((slot) => (
+                    <Reorder.Item
+                      key={slot.name}
+                      value={slot}
+                      layout
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      transition={{
+                        layout: { type: 'spring', stiffness: 350, damping: 25 },
+                        opacity: { duration: 0.2 }
+                      }}
+                      whileDrag={{
+                        scale: 1.03,
+                        zIndex: 1000,
+                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+                        cursor: 'grabbing'
+                      }}
+                      style={{
+                        position: 'relative',
+                        listStyle: 'none'
+                      }}
+                    >
+                      <LayerItem
+                        slotId={slot.name}
+                        slot={slot}
+                        pageId={page.id}
+                        selectedSlots={selectedSlots}
+                        contrastInfo={contrastInfo.get(slot.name)}
+                        onContrastBadgeClick={onContrastBadgeClick}
+                        onDuplicateSlot={onDuplicateSlot}
+                        onToggleLockSlot={onToggleLockSlot}
+                        onRemoveSlot={onRemoveSlot}
+                        onSelectSlot={onSelectSlot}
+                      />
+                    </Reorder.Item>
+                  ))}
+                </Reorder.Group>
+              )}
             </div>
           )
         })}
@@ -255,6 +262,7 @@ interface LayerItemProps {
   slotId: string
   slot: Slot
   pageId: string
+  selectedSlots: string[]
   contrastInfo?: LayerContrastInfo
   onContrastBadgeClick?: (info: LayerContrastInfo) => void
   onDuplicateSlot?: (slotName: string) => void
@@ -263,11 +271,13 @@ interface LayerItemProps {
   onSelectSlot?: (slotName: string, pageId: string) => void
 }
 
-function LayerItem({ slotId, slot, pageId, contrastInfo, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot }: LayerItemProps) {
+function LayerItem({ slotId, slot, pageId, selectedSlots, contrastInfo, onContrastBadgeClick, onDuplicateSlot, onToggleLockSlot, onRemoveSlot, onSelectSlot }: LayerItemProps) {
   const [visible, setVisible] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 })
   const menuButtonRef = React.useRef<HTMLButtonElement>(null)
+
+  const isSelected = selectedSlots.includes(slot.name)
 
   const getIcon = () => {
     switch (slot.type) {
@@ -285,34 +295,40 @@ function LayerItem({ slotId, slot, pageId, contrastInfo, onContrastBadgeClick, o
   }
 
   return (
-    <div
+    <motion.div
       onClick={() => {
         if (onSelectSlot) {
           onSelectSlot(slot.name, pageId)
         }
       }}
+      whileHover={{ scale: 1.01 }}
+      transition={{ duration: 0.15 }}
       style={{
-        background: '#f9fafb',
-        border: '1px solid #e5e7eb',
+        background: isSelected ? '#dbeafe' : '#f9fafb',
+        border: isSelected ? '1px solid #3b82f6' : '1px solid #e5e7eb',
         borderRadius: '4px',
         padding: '6px 8px',
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
         cursor: 'pointer',
-        transition: 'all 0.15s',
         position: 'relative'
       }}
     >
+
       {/* Drag Handle */}
-      <div style={{
-        color: '#d1d5db',
-        display: 'flex',
-        alignItems: 'center',
-        cursor: 'grab'
-      }}>
+      <motion.div
+        whileHover={{ color: '#3b82f6', scale: 1.1 }}
+        transition={{ duration: 0.15 }}
+        style={{
+          color: '#d1d5db',
+          display: 'flex',
+          alignItems: 'center',
+          cursor: 'grab'
+        }}
+      >
         <GripVertical size={14} />
-      </div>
+      </motion.div>
 
       {/* Type Icon */}
       <div style={{
@@ -508,7 +524,7 @@ function LayerItem({ slotId, slot, pageId, contrastInfo, onContrastBadgeClick, o
           </div>
         </>
       )}
-    </div>
+    </motion.div>
   )
 }
 

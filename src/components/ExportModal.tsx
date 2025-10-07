@@ -1,16 +1,18 @@
 import React, { useState } from 'react'
 import type { Template } from '../schema/types'
 import { exportAndDownload } from '../export/pngExport'
+import { exportSVG, downloadSVG } from '../export/svgExport'
 
 interface ExportModalProps {
   isOpen: boolean
   onClose: () => void
   template: Template | null
   currentSize: { w: number; h: number }
+  currentPageId?: string | null
 }
 
-export function ExportModal({ isOpen, onClose, template, currentSize }: ExportModalProps) {
-  const [format, setFormat] = useState<'png' | 'jpeg'>('png')
+export function ExportModal({ isOpen, onClose, template, currentSize, currentPageId }: ExportModalProps) {
+  const [format, setFormat] = useState<'png' | 'jpeg' | 'svg'>('png')
   const [quality, setQuality] = useState(100)
   const [scale, setScale] = useState(1)
   const [exporting, setExporting] = useState(false)
@@ -20,26 +22,67 @@ export function ExportModal({ isOpen, onClose, template, currentSize }: ExportMo
   const handleExport = async () => {
     setExporting(true)
     try {
-      // Find the SVG element in the DOM
-      const svgElement = document.querySelector('svg[viewBox]') as SVGSVGElement
+      // Find the main canvas SVG element for the current page
+      // If there are multiple pages, select the active one by page ID
+      const selector = currentPageId
+        ? `svg[data-canvas-svg="true"][data-page-id="${currentPageId}"]`
+        : 'svg[data-canvas-svg="true"]'
+
+      const svgElement = document.querySelector(selector) as SVGSVGElement
       if (!svgElement) {
+        console.error('[ExportModal] No canvas SVG found. Available SVGs:',
+          Array.from(document.querySelectorAll('svg')).map(s => ({
+            viewBox: s.getAttribute('viewBox'),
+            dataAttrs: Array.from(s.attributes).filter(a => a.name.startsWith('data-'))
+          }))
+        )
         throw new Error('No SVG canvas found')
       }
 
-      await exportAndDownload(
-        svgElement,
-        {
-          width: currentSize.w,
-          height: currentSize.h,
-          format,
-          quality: quality / 100,
-          multiplier: scale
-        }
-      )
+      console.log('[ExportModal] Found SVG element:', svgElement)
+
+      if (format === 'svg') {
+        // SVG export
+        const svgString = exportSVG(svgElement)
+        const filename = `template-${currentSize.w}x${currentSize.h}.svg`
+        downloadSVG(svgString, filename)
+      } else {
+        // PNG/JPEG export
+        await exportAndDownload(
+          svgElement,
+          {
+            width: currentSize.w,
+            height: currentSize.h,
+            format,
+            quality: quality / 100,
+            multiplier: scale
+          }
+        )
+      }
       onClose()
     } catch (error) {
       console.error('Export failed:', error)
-      alert('Export failed. Please try again.')
+
+      // Provide specific error messages
+      let errorMessage = 'Export failed. Please try again.'
+
+      if (error instanceof Error) {
+        if (error.message.includes('Tainted canvases') || error.message.includes('SecurityError')) {
+          errorMessage = 'Export failed due to CORS restrictions.\n\n' +
+            'Your template contains images from external URLs that don\'t allow cross-origin access. ' +
+            'To fix this:\n' +
+            '1. Use images from the same domain\n' +
+            '2. Convert images to data URIs (base64)\n' +
+            '3. Host images on a CORS-enabled server\n\n' +
+            'SVG export may still work as an alternative.'
+        } else if (error.message.includes('No SVG canvas found')) {
+          errorMessage = 'No canvas found to export. Please make sure your template is loaded.'
+        } else {
+          errorMessage = `Export failed: ${error.message}`
+        }
+      }
+
+      alert(errorMessage)
     } finally {
       setExporting(false)
     }
@@ -110,8 +153,16 @@ export function ExportModal({ isOpen, onClose, template, currentSize }: ExportMo
               Export Size
             </div>
             <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-              {currentSize.w * scale} × {currentSize.h * scale} px
-              {scale > 1 && <span style={{ color: '#6b7280', fontWeight: '400' }}> (@{scale}x)</span>}
+              {format === 'svg' ? (
+                <>
+                  {currentSize.w} × {currentSize.h} <span style={{ color: '#6b7280', fontWeight: '400' }}>(Vector)</span>
+                </>
+              ) : (
+                <>
+                  {currentSize.w * scale} × {currentSize.h * scale} px
+                  {scale > 1 && <span style={{ color: '#6b7280', fontWeight: '400' }}> (@{scale}x)</span>}
+                </>
+              )}
             </div>
           </div>
 
@@ -136,6 +187,11 @@ export function ExportModal({ isOpen, onClose, template, currentSize }: ExportMo
                 active={format === 'jpeg'}
                 onClick={() => setFormat('jpeg')}
                 label="JPEG"
+              />
+              <FormatButton
+                active={format === 'svg'}
+                onClick={() => setFormat('svg')}
+                label="SVG"
               />
             </div>
           </div>
@@ -163,24 +219,26 @@ export function ExportModal({ isOpen, onClose, template, currentSize }: ExportMo
             </div>
           )}
 
-          {/* Scale */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '12px',
-              fontWeight: '600',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              Resolution
-            </label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <ScaleButton active={scale === 1} onClick={() => setScale(1)} label="1x" />
-              <ScaleButton active={scale === 2} onClick={() => setScale(2)} label="2x" />
-              <ScaleButton active={scale === 3} onClick={() => setScale(3)} label="3x" />
-              <ScaleButton active={scale === 4} onClick={() => setScale(4)} label="4x" />
+          {/* Scale (PNG/JPEG only - SVG is vector) */}
+          {format !== 'svg' && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#374151',
+                marginBottom: '8px'
+              }}>
+                Resolution
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <ScaleButton active={scale === 1} onClick={() => setScale(1)} label="1x" />
+                <ScaleButton active={scale === 2} onClick={() => setScale(2)} label="2x" />
+                <ScaleButton active={scale === 3} onClick={() => setScale(3)} label="3x" />
+                <ScaleButton active={scale === 4} onClick={() => setScale(4)} label="4x" />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}

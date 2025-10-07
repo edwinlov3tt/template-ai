@@ -13,6 +13,7 @@ import {
 import { Tooltip, Button, Typography, Divider, Upload, Input, Spin } from 'antd'
 import { useEditorStore } from '../state/editorStore'
 import * as PexelsAPI from '../services/pexelsApi'
+import * as IconifyAPI from '../services/iconifyApi'
 import { shapeCategories, shapeRegistry, type ShapeDefinition, type ShapeId } from '../shapes/registry'
 import { renderShapeGeometry } from '../shapes/render'
 import type { Slot } from '../schema/types'
@@ -23,10 +24,16 @@ type Tool = 'templates' | 'text' | 'images' | 'shapes' | 'vectors' | 'uploads' |
 
 interface LeftRailProps {
   onUploadSvg: (e: React.ChangeEvent<HTMLInputElement>) => void
-  onAddSlot: (slotType: 'text' | 'image' | 'shape' | 'button') => void
+  onAddSlot: (
+    slotType: 'text' | 'image' | 'shape' | 'button',
+    options?: {
+      shapeId?: ShapeId
+      shapeOptions?: Record<string, unknown>
+      textStyle?: 'heading' | 'subheading' | 'body'
+    }
+  ) => void
   onInsertShape: (shapeId: ShapeId, shapeOptions?: Record<string, unknown>) => void
   onCreateNewTemplate: () => void
-  onSelectSize?: (size: { id: string; w: number; h: number }) => void
   hasTemplate?: boolean
   isCollapsed?: boolean
   onToggleCollapse?: () => void
@@ -39,7 +46,6 @@ export function LeftRail({
   onAddSlot,
   onInsertShape,
   onCreateNewTemplate,
-  onSelectSize,
   hasTemplate = true,
   isCollapsed = false,
   onToggleCollapse,
@@ -70,11 +76,6 @@ export function LeftRail({
     { id: 'uploads' as Tool, icon: <CloudUploadOutlined />, label: 'Uploads' },
     { id: 'more' as Tool, icon: <EllipsisOutlined />, label: 'More' }
   ]
-
-  // Show initial screen when no template
-  if (!hasTemplate && onSelectSize) {
-    return <InitialScreen onSelectSize={onSelectSize} onUploadSvg={onUploadSvg} />
-  }
 
   return (
     <>
@@ -214,38 +215,473 @@ export function LeftRail({
   )
 }
 
-function TextPanel({ onAddSlot }: { onAddSlot: (slotType: 'text' | 'button') => void }) {
+function TextPanel({ onAddSlot }: {
+  onAddSlot: (slotType: 'text' | 'button', options?: { textStyle?: 'heading' | 'subheading' | 'body' }) => void
+}) {
+  const [textTemplates, setTextTemplates] = React.useState<any[]>([])
+  const [buttonTemplates, setButtonTemplates] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const canvasSize = useEditorStore(state => state.canvasSize)
+  const setTemplate = useEditorStore(state => state.setTemplate)
+  const setSelection = useEditorStore(state => state.setSelection)
+
+  // Load templates on mount and when canvas size changes
+  React.useEffect(() => {
+    loadTemplates()
+  }, [canvasSize.id])
+
+  async function loadTemplates() {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+
+      // Load text-block templates
+      const textRes = await fetch(`${API_URL}/templates?category=text-block&published=true`)
+      const textData = await textRes.json()
+
+      // Load cta-button templates
+      const buttonRes = await fetch(`${API_URL}/templates?category=cta-button&published=true`)
+      const buttonData = await buttonRes.json()
+
+      // Load full template data
+      const loadFullTemplates = async (templates: any[]) => {
+        const withDetails = await Promise.all(
+          templates.map(async (t: any) => {
+            try {
+              const detailRes = await fetch(`${API_URL}/templates/${t.slug}`)
+              if (!detailRes.ok) return null
+              return await detailRes.json()
+            } catch (err) {
+              console.error('Failed to load template details:', err)
+              return null
+            }
+          })
+        )
+
+        // Filter out nulls and filter by current canvas ratio
+        return withDetails
+          .filter(t => t !== null)
+          .filter(t => {
+            const templateJson = t.template_json
+            if (!templateJson || !templateJson.pages) return false
+            return templateJson.pages.some((page: any) =>
+              page.frames && page.frames[canvasSize.id]
+            )
+          })
+      }
+
+      const validTextTemplates = await loadFullTemplates(textData.templates)
+      const validButtonTemplates = await loadFullTemplates(buttonData.templates)
+
+      setTextTemplates(validTextTemplates)
+      setButtonTemplates(validButtonTemplates)
+    } catch (err: any) {
+      console.error('Failed to load templates:', err)
+      setError(err.message || 'Failed to load templates')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleTemplateClick(template: any) {
+    try {
+      setTemplate(template.template_json)
+      setSelection([])
+    } catch (err) {
+      console.error('Failed to load template:', err)
+      setError('Failed to load template')
+    }
+  }
+
   return (
-    <div>
-      <PanelHeading>Add a heading</PanelHeading>
-      <PanelButton onClick={() => onAddSlot('text')}>Add a subheading</PanelButton>
-      <PanelButton onClick={() => onAddSlot('text')}>Add body text</PanelButton>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+      {/* Text Block Buttons */}
+      <PanelSectionTitle>CREATE NEW</PanelSectionTitle>
+      <TextBlockButton
+        label="Add a heading"
+        fontSize="24px"
+        fontWeight="700"
+        onClick={() => onAddSlot('text', { textStyle: 'heading' })}
+      />
+      <TextBlockButton
+        label="Add a subheading"
+        fontSize="18px"
+        fontWeight="600"
+        onClick={() => onAddSlot('text', { textStyle: 'subheading' })}
+      />
+      <TextBlockButton
+        label="Add body text"
+        fontSize="14px"
+        fontWeight="400"
+        onClick={() => onAddSlot('text', { textStyle: 'body' })}
+      />
 
       <Divider style={{ borderColor: '#3a3a3a', margin: '24px 0' }} />
 
-      <PanelSectionTitle>Quick Text Chips</PanelSectionTitle>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-        <TextChip color="#ef4444">SPECIAL{'\n'}OFFER</TextChip>
-        <TextChip color="#22c55e">BUY ONE{'\n'}GET ONE</TextChip>
-        <TextChip color="#8b5cf6">Winter{'\n'}Collection</TextChip>
-        <TextChip color="#06b6d4">COMING{'\n'}SOON</TextChip>
-        <TextChip color="#eab308">Best Service</TextChip>
-        <TextChip color="#f97316">DOWNLOAD{'\n'}NOW</TextChip>
-      </div>
+      {/* Buttons/CTAs Section */}
+      <PanelSectionTitle>BUTTONS & CTAS</PanelSectionTitle>
+      {loading && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0', color: '#9ca3af' }}>
+          <Spin size="small" />
+        </div>
+      )}
+      {!loading && buttonTemplates.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '20px' }}>
+          {buttonTemplates.map((template) => (
+            <div
+              key={template.id}
+              onClick={() => handleTemplateClick(template)}
+              style={{
+                background: '#1a1a1a',
+                border: '1px solid #3a3a3a',
+                borderRadius: '6px',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                aspectRatio: '1'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#3b82f6'
+                e.currentTarget.style.transform = 'scale(1.05)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#3a3a3a'
+                e.currentTarget.style.transform = 'scale(1)'
+              }}
+            >
+              {template.preview_url ? (
+                <img
+                  src={template.preview_url}
+                  alt={template.title}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover'
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  fontWeight: '600',
+                  textAlign: 'center',
+                  padding: '8px'
+                }}>
+                  {template.title}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {!loading && buttonTemplates.length === 0 && (
+        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '20px', textAlign: 'center' }}>
+          No button templates yet
+        </div>
+      )}
+
+      <Divider style={{ borderColor: '#3a3a3a', margin: '24px 0' }} />
+
+      {/* Quick Text Chips */}
+      <PanelSectionTitle>QUICK TEXT CHIPS</PanelSectionTitle>
+      {loading && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0', color: '#9ca3af' }}>
+          <Spin size="small" />
+        </div>
+      )}
+      {!loading && textTemplates.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          {textTemplates.map((template) => (
+            <div
+              key={template.id}
+              onClick={() => handleTemplateClick(template)}
+              style={{
+                background: '#1a1a1a',
+                border: '1px solid #3a3a3a',
+                borderRadius: '6px',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                aspectRatio: '1'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#3b82f6'
+                e.currentTarget.style.transform = 'scale(1.05)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#3a3a3a'
+                e.currentTarget.style.transform = 'scale(1)'
+              }}
+            >
+              {template.preview_url ? (
+                <img
+                  src={template.preview_url}
+                  alt={template.title}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover'
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  fontWeight: '600',
+                  textAlign: 'center',
+                  padding: '8px'
+                }}>
+                  {template.title}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {!loading && textTemplates.length === 0 && (
+        <div style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center' }}>
+          No text templates yet
+        </div>
+      )}
+
+      {error && (
+        <div style={{
+          padding: '12px',
+          background: '#7f1d1d',
+          border: '1px solid #991b1b',
+          borderRadius: '6px',
+          color: '#fecaca',
+          fontSize: '12px',
+          marginTop: '16px'
+        }}>
+          {error}
+        </div>
+      )}
     </div>
   )
 }
 
 function TemplatesPanel({ onCreateNew }: { onCreateNew: () => void }) {
+  const [templates, setTemplates] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const canvasSize = useEditorStore(state => state.canvasSize)
+  const setTemplate = useEditorStore(state => state.setTemplate)
+  const setSelection = useEditorStore(state => state.setSelection)
+
+  // Load templates on mount and when canvas size changes
+  React.useEffect(() => {
+    loadTemplates()
+  }, [canvasSize.id])
+
+  async function loadTemplates() {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const res = await fetch(`${API_URL}/templates?published=true`)
+
+      if (!res.ok) throw new Error('Failed to load templates')
+
+      const data = await res.json()
+
+      // Load full template data to check for compatible ratios
+      const templatesWithDetails = await Promise.all(
+        data.templates.map(async (t: any) => {
+          try {
+            const detailRes = await fetch(`${API_URL}/templates/${t.slug}`)
+            if (!detailRes.ok) return null
+
+            const detail = await detailRes.json()
+            return detail
+          } catch (err) {
+            console.error('Failed to load template details:', err)
+            return null
+          }
+        })
+      )
+
+      // Filter out nulls and filter by current canvas ratio
+      const validTemplates = templatesWithDetails
+        .filter(t => t !== null)
+        .filter(t => {
+          // Check if any page has frames for the current ratio
+          const templateJson = t.template_json
+          if (!templateJson || !templateJson.pages) return false
+
+          return templateJson.pages.some((page: any) =>
+            page.frames && page.frames[canvasSize.id]
+          )
+        })
+
+      setTemplates(validTemplates)
+    } catch (err: any) {
+      console.error('Failed to load templates:', err)
+      setError(err.message || 'Failed to load templates')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleTemplateClick(template: any) {
+    try {
+      setTemplate(template.template_json)
+      setSelection([])
+    } catch (err) {
+      console.error('Failed to load template:', err)
+      setError('Failed to load template')
+    }
+  }
+
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <PanelSectionTitle>START FRESH</PanelSectionTitle>
       <PanelButton onClick={onCreateNew}>+ Create New Template</PanelButton>
 
       <Divider style={{ borderColor: '#3a3a3a', margin: '24px 0' }} />
 
-      <PanelSectionTitle>TEMPLATE GALLERY</PanelSectionTitle>
-      <EmptyState>Saved templates coming soon</EmptyState>
+      <PanelSectionTitle>
+        TEMPLATES ({canvasSize.w}×{canvasSize.h})
+      </PanelSectionTitle>
+
+      {/* Error State */}
+      {error && (
+        <div style={{
+          padding: '16px',
+          background: '#7f1d1d',
+          border: '1px solid #991b1b',
+          borderRadius: '6px',
+          color: '#fecaca',
+          fontSize: '13px',
+          marginBottom: '16px'
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '40px 0',
+          color: '#9ca3af'
+        }}>
+          <Spin size="large" />
+        </div>
+      )}
+
+      {/* Template Grid - Scrollable */}
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        {!loading && !error && templates.length > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr',
+            gap: '12px',
+            paddingBottom: '16px'
+          }}>
+            {templates.map((template) => (
+              <div
+                key={template.id}
+                onClick={() => handleTemplateClick(template)}
+                style={{
+                  background: '#1a1a1a',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#3b82f6'
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3a3a3a'
+                  e.currentTarget.style.transform = 'translateY(0)'
+                }}
+              >
+                {/* Preview Image */}
+                <div style={{
+                  aspectRatio: `${canvasSize.w} / ${canvasSize.h}`,
+                  background: template.preview_url
+                    ? '#2a2a2a'
+                    : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden'
+                }}>
+                  {template.preview_url ? (
+                    <img
+                      src={template.preview_url}
+                      alt={template.title}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover'
+                      }}
+                    />
+                  ) : (
+                    <AppstoreFilled style={{ fontSize: '32px', color: '#ffffff' }} />
+                  )}
+                </div>
+
+                {/* Info */}
+                <div style={{ padding: '12px' }}>
+                  <div style={{
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    color: '#e5e7eb',
+                    marginBottom: '4px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {template.title}
+                  </div>
+                  {template.description && (
+                    <div style={{
+                      fontSize: '11px',
+                      color: '#9ca3af',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {template.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && !error && templates.length === 0 && (
+          <EmptyState>
+            No templates available for {canvasSize.w}×{canvasSize.h}
+          </EmptyState>
+        )}
+      </div>
     </div>
   )
 }
@@ -980,10 +1416,369 @@ function ShapeTile({ definition, onClick }: { definition: ShapeDefinition; onCli
 }
 
 function VectorsPanel() {
+  const [searchQuery, setSearchQuery] = React.useState('')
+  const [icons, setIcons] = React.useState<IconifyAPI.IconifyIcon[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Get editor store for adding icons directly
+  const template = useEditorStore(state => state.template)
+  const setTemplate = useEditorStore(state => state.setTemplate)
+  const canvasSize = useEditorStore(state => state.canvasSize)
+  const setSelection = useEditorStore(state => state.setSelection)
+  const currentPageId = useEditorStore(state => state.currentPageId)
+
+  // Load popular icons on mount
+  React.useEffect(() => {
+    if (icons.length === 0) {
+      loadDefaultIcons()
+    }
+  }, [])
+
+  async function loadDefaultIcons() {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Predefined list of popular Flat Color Icons (colorful, marketing-friendly)
+      const popularFlatColorIcons = [
+        'flat-color-icons:advertising',
+        'flat-color-icons:business-contact',
+        'flat-color-icons:like',
+        'flat-color-icons:voice-presentation',
+        'flat-color-icons:business',
+        'flat-color-icons:template',
+        'flat-color-icons:conference-call',
+        'flat-color-icons:sales-performance',
+        'flat-color-icons:share',
+        'flat-color-icons:timeline',
+        'flat-color-icons:comments',
+        'flat-color-icons:idea',
+        'flat-color-icons:approval',
+        'flat-color-icons:gallery',
+        'flat-color-icons:video-call',
+        'flat-color-icons:phone',
+        'flat-color-icons:email',
+        'flat-color-icons:search',
+        'flat-color-icons:folder',
+        'flat-color-icons:settings',
+        'flat-color-icons:edit-image',
+        'flat-color-icons:manager',
+        'flat-color-icons:speaker',
+        'flat-color-icons:survey',
+        'flat-color-icons:workflow',
+        'flat-color-icons:news',
+        'flat-color-icons:menu',
+        'flat-color-icons:camera',
+        'flat-color-icons:calendar',
+        'flat-color-icons:database',
+        'flat-color-icons:document',
+        'flat-color-icons:graduation-cap',
+        'flat-color-icons:statistics',
+        'flat-color-icons:package',
+        'flat-color-icons:globe',
+        'flat-color-icons:home',
+        'flat-color-icons:services',
+        'flat-color-icons:shop',
+        'flat-color-icons:todo-list',
+        'flat-color-icons:upload',
+        'flat-color-icons:download',
+        'flat-color-icons:bookmark',
+        'flat-color-icons:link',
+        'flat-color-icons:rules',
+        'flat-color-icons:automatic',
+        'flat-color-icons:checkmark',
+        'flat-color-icons:cancel',
+        'flat-color-icons:info'
+      ]
+
+      const parsedIcons = popularFlatColorIcons.map(fullName => IconifyAPI.parseIconName(fullName))
+      setIcons(parsedIcons)
+    } catch (err: any) {
+      console.error('Failed to load icons:', err)
+      setError(err.message || 'Failed to load icons')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSearch(value: string) {
+    if (!value.trim()) {
+      loadDefaultIcons()
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+      setSearchQuery(value)
+
+      const response = await IconifyAPI.searchIcons(value, 48)
+      const parsedIcons = response.icons.map(fullName => IconifyAPI.parseIconName(fullName))
+      setIcons(parsedIcons)
+    } catch (err: any) {
+      console.error('Failed to search icons:', err)
+      setError(err.message || 'Search failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleIconClick(icon: IconifyAPI.IconifyIcon) {
+    if (!template || !currentPageId) return
+
+    try {
+      // Get SVG URL from Iconify (no download needed, just construct URL)
+      const svgUrl = IconifyAPI.getIconSvgUrl(icon.prefix, icon.name)
+
+      // Find current page
+      const currentPage = template.pages.find(p => p.id === currentPageId)
+      if (!currentPage) return
+
+      // Generate unique slot name
+      const existingNames = currentPage.slots.map(s => s.name)
+      let counter = 1
+      let slotName = `icon-${counter}`
+      while (existingNames.includes(slotName)) {
+        counter++
+        slotName = `icon-${counter}`
+      }
+
+      // Get viewBox for positioning
+      const [vbX, vbY, vbWidth, vbHeight] = template.canvas.baseViewBox
+
+      // Calculate default size (20% of canvas width/height for icons - smaller than images)
+      const defaultWidth = vbWidth * 0.2
+      const defaultHeight = vbHeight * 0.2
+
+      // Center position
+      const x = vbX + (vbWidth - defaultWidth) / 2
+      const y = vbY + (vbHeight - defaultHeight) / 2
+
+      // Find highest z-index in current page
+      const maxZ = currentPage.slots.reduce((max, slot) => Math.max(max, slot.z), 0)
+
+      // Create new slot with Iconify icon
+      const newSlot: any = {
+        name: slotName,
+        type: 'image',
+        z: maxZ + 1,
+        fit: 'contain', // Icons should use contain, not cover
+        href: svgUrl,
+        attribution: {
+          name: icon.name,
+          collection: IconifyAPI.getCollectionDisplayName(icon.prefix),
+          source: 'Iconify',
+          sourceUrl: `https://icon-sets.iconify.design/${icon.prefix}/${icon.name}/`,
+          license: 'Open Source'
+        }
+      }
+
+      // Create frame for this slot on current page
+      const currentRatio = canvasSize.id
+      const updatedPage = {
+        ...currentPage,
+        slots: [...currentPage.slots, newSlot],
+        frames: {
+          ...currentPage.frames,
+          [currentRatio]: {
+            ...(currentPage.frames[currentRatio] || {}),
+            [slotName]: {
+              x,
+              y,
+              width: defaultWidth,
+              height: defaultHeight
+            }
+          }
+        }
+      }
+
+      // Update template with modified page
+      const newTemplate = {
+        ...template,
+        pages: template.pages.map(p => p.id === currentPageId ? updatedPage : p)
+      }
+
+      setTemplate(newTemplate)
+      setSelection([slotName])
+
+      console.log(`Added Iconify icon to page ${currentPageId}: ${slotName}`, icon)
+    } catch (err: any) {
+      console.error('Failed to add icon:', err)
+      setError(err.message || 'Failed to add icon')
+    }
+  }
+
   return (
-    <div>
-      <PanelSectionTitle>Vector Icons</PanelSectionTitle>
-      <EmptyState>Icon library coming soon</EmptyState>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PanelSectionTitle>Vector Icons & Elements</PanelSectionTitle>
+
+      {/* Search Bar */}
+      <div style={{ marginBottom: '16px' }}>
+        <Input.Search
+          placeholder="Search icons..."
+          onSearch={handleSearch}
+          style={{
+            background: '#1a1a1a',
+            borderColor: '#3a3a3a'
+          }}
+          styles={{
+            input: {
+              background: '#1a1a1a',
+              color: '#ffffff',
+              borderColor: '#3a3a3a'
+            },
+          }}
+          classNames={{
+            input: 'dark-search-input'
+          }}
+        />
+        <style>{`
+          .dark-search-input::placeholder {
+            color: #6b7280 !important;
+            opacity: 1;
+          }
+          .dark-search-input {
+            background: #1a1a1a !important;
+            color: #ffffff !important;
+          }
+          .ant-input-search-button {
+            background: #3a3a3a !important;
+            border-color: #3a3a3a !important;
+            color: #9ca3af !important;
+          }
+          .ant-input-search-button:hover {
+            background: #4a4a4a !important;
+            border-color: #4a4a4a !important;
+            color: #ffffff !important;
+          }
+        `}</style>
+      </div>
+
+      {/* Error State */}
+      {error && (
+        <div style={{
+          padding: '16px',
+          background: '#7f1d1d',
+          border: '1px solid #991b1b',
+          borderRadius: '6px',
+          color: '#fecaca',
+          fontSize: '13px',
+          marginBottom: '16px'
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '40px 0',
+          color: '#9ca3af'
+        }}>
+          <Spin size="large" />
+        </div>
+      )}
+
+      {/* Icon Grid - Scrollable Container */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        marginBottom: '16px'
+      }}>
+        {!loading && !error && icons.length > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '8px'
+          }}>
+            {icons.map((icon) => (
+              <div
+                key={icon.fullName}
+                onClick={() => handleIconClick(icon)}
+                style={{
+                  position: 'relative',
+                  aspectRatio: '1',
+                  borderRadius: '6px',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  border: '1px solid #3a3a3a',
+                  transition: 'all 0.2s',
+                  background: '#1a1a1a',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.05)'
+                  e.currentTarget.style.borderColor = '#3b82f6'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)'
+                  e.currentTarget.style.borderColor = '#3a3a3a'
+                }}
+                title={`${icon.name} (${IconifyAPI.getCollectionDisplayName(icon.prefix)})`}
+              >
+                <img
+                  src={IconifyAPI.getIconPreviewUrl(icon.prefix, icon.name, 64)}
+                  alt={icon.name}
+                  style={{
+                    width: '64px',
+                    height: '64px',
+                    objectFit: 'contain'
+                  }}
+                />
+                <div style={{
+                  fontSize: '10px',
+                  color: '#6b7280',
+                  marginTop: '4px',
+                  textAlign: 'center',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  width: '100%'
+                }}>
+                  {icon.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && !error && icons.length === 0 && (
+          <EmptyState>No icons found</EmptyState>
+        )}
+      </div>
+
+      {/* Attribution Footer */}
+      <div style={{
+        borderTop: '1px solid #3a3a3a',
+        padding: '12px 0',
+        marginTop: 'auto',
+        textAlign: 'center'
+      }}>
+        <a
+          href="https://iconify.design"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: '11px',
+            color: '#9ca3af',
+            textDecoration: 'none',
+            transition: 'color 0.2s'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+        >
+          150,000+ icons powered by Iconify
+        </a>
+      </div>
     </div>
   )
 }
@@ -1087,6 +1882,47 @@ function PanelButton({ children, onClick }: { children: React.ReactNode; onClick
   )
 }
 
+function TextBlockButton({
+  label,
+  fontSize,
+  fontWeight,
+  onClick
+}: {
+  label: string
+  fontSize: string
+  fontWeight: string
+  onClick: () => void
+}) {
+  const [isHovered, setIsHovered] = React.useState(false)
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        width: '100%',
+        background: isHovered ? '#3a3a3a' : '#2a2a2a',
+        border: '1px solid #3a3a3a',
+        borderRadius: '8px',
+        padding: '16px',
+        marginBottom: '12px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.15s',
+        display: 'flex',
+        alignItems: 'center',
+        color: '#ffffff',
+        fontSize,
+        fontWeight,
+        fontFamily: 'Inter, sans-serif'
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
 function TextChip({ children, color, onClick }: { children: React.ReactNode; color: string; onClick?: () => void }) {
   return (
     <Button
@@ -1119,289 +1955,6 @@ function EmptyState({ children }: { children: React.ReactNode }) {
       fontStyle: 'italic'
     }}>
       {children}
-    </div>
-  )
-}
-
-// Template Size Presets
-const SIZE_PRESETS = {
-  social: [
-    { id: '1:1', w: 1080, h: 1080, label: 'Instagram Square' },
-    { id: '4:5', w: 1080, h: 1350, label: 'Instagram Portrait' },
-    { id: '9:16', w: 1080, h: 1920, label: 'Instagram Story' },
-    { id: '16:9', w: 1920, h: 1080, label: 'YouTube Thumbnail' },
-  ],
-  display: [
-    { id: '300x250', w: 300, h: 250, label: 'Medium Rectangle' },
-    { id: '728x90', w: 728, h: 90, label: 'Leaderboard' },
-    { id: '160x600', w: 160, h: 600, label: 'Wide Skyscraper' },
-    { id: '300x600', w: 300, h: 600, label: 'Half Page' },
-    { id: '970x250', w: 970, h: 250, label: 'Billboard' },
-    { id: '320x50', w: 320, h: 50, label: 'Mobile Banner' },
-  ],
-  email: [
-    { id: '600x800', w: 600, h: 800, label: 'Email Standard' },
-    { id: '600x1200', w: 600, h: 1200, label: 'Email Long' },
-    { id: '600x400', w: 600, h: 400, label: 'Email Header' },
-  ],
-  content: [
-    { id: '1200x628', w: 1200, h: 628, label: 'Blog Header' },
-    { id: '1200x675', w: 1200, h: 675, label: 'Featured Image' },
-    { id: '800x800', w: 800, h: 800, label: 'Social Share' },
-  ]
-}
-
-interface InitialScreenProps {
-  onSelectSize: (size: { id: string; w: number; h: number }) => void
-  onUploadSvg: (e: React.ChangeEvent<HTMLInputElement>) => void
-}
-
-function InitialScreen({ onSelectSize, onUploadSvg }: InitialScreenProps) {
-  const [activeTab, setActiveTab] = useState<'social' | 'display' | 'email' | 'content' | 'custom'>('social')
-
-  const handleFileChange = (info: any) => {
-    const file = info.file.originFileObj || info.file
-    const event = {
-      target: {
-        files: [file]
-      }
-    } as unknown as React.ChangeEvent<HTMLInputElement>
-    onUploadSvg(event)
-  }
-
-  return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'transparent',
-      position: 'relative',
-      zIndex: 10
-    }}>
-      <div style={{
-        width: '600px',
-        maxWidth: '90vw',
-        maxHeight: '85vh',
-        background: '#ffffff',
-        borderRadius: '12px',
-        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '24px 24px 16px',
-          borderBottom: '1px solid #e5e7eb',
-          textAlign: 'center'
-        }}>
-          <h1 style={{
-            fontSize: '20px',
-            fontWeight: '600',
-            color: '#111827',
-            margin: 0
-          }}>
-            Template Editor
-          </h1>
-        </div>
-
-        {/* Tabs */}
-        <div style={{
-          display: 'flex',
-          borderBottom: '1px solid #e5e7eb',
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none'
-        }}
-        className="hide-scrollbar">
-          {[
-            { id: 'social' as const, label: 'Social Media' },
-            { id: 'display' as const, label: 'Display Ads' },
-            { id: 'email' as const, label: 'Email' },
-            { id: 'content' as const, label: 'Content' },
-            { id: 'custom' as const, label: 'Custom' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                flex: '1 0 auto',
-                padding: '12px 16px',
-                border: 'none',
-                background: 'transparent',
-                color: activeTab === tab.id ? '#3b82f6' : '#6b7280',
-                fontSize: '13px',
-                fontWeight: activeTab === tab.id ? '600' : '500',
-                cursor: 'pointer',
-                borderBottom: activeTab === tab.id ? '2px solid #3b82f6' : '2px solid transparent',
-                transition: 'all 0.15s',
-                whiteSpace: 'nowrap'
-              }}
-              onMouseEnter={(e) => {
-                if (activeTab !== tab.id) {
-                  e.currentTarget.style.color = '#374151'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activeTab !== tab.id) {
-                  e.currentTarget.style.color = '#6b7280'
-                }
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div style={{
-          padding: '24px',
-          overflowY: 'auto',
-          flex: 1,
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none'
-        }}
-        className="hide-scrollbar">
-          {activeTab === 'social' && (
-            <SizeSection
-              title="Social Media Templates"
-              sizes={SIZE_PRESETS.social}
-              onSelectSize={onSelectSize}
-            />
-          )}
-
-          {activeTab === 'display' && (
-            <SizeSection
-              title="Display Ad Templates"
-              sizes={SIZE_PRESETS.display}
-              onSelectSize={onSelectSize}
-            />
-          )}
-
-          {activeTab === 'email' && (
-            <SizeSection
-              title="Email Templates"
-              sizes={SIZE_PRESETS.email}
-              onSelectSize={onSelectSize}
-            />
-          )}
-
-          {activeTab === 'content' && (
-            <SizeSection
-              title="Content Marketing Templates"
-              sizes={SIZE_PRESETS.content}
-              onSelectSize={onSelectSize}
-            />
-          )}
-
-          {activeTab === 'custom' && (
-            <div>
-              <h3 style={{
-                fontSize: '12px',
-                fontWeight: '600',
-                color: '#6b7280',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                marginBottom: '16px'
-              }}>
-                Custom Canvas Size
-              </h3>
-              <div style={{
-                background: '#f9fafb',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                padding: '24px',
-                textAlign: 'center'
-              }}>
-                <p style={{ color: '#6b7280', fontSize: '14px', margin: '0 0 16px 0' }}>
-                  Custom size builder coming soon
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <style>{`
-          .hide-scrollbar::-webkit-scrollbar {
-            display: none;
-          }
-        `}</style>
-      </div>
-    </div>
-  )
-}
-
-interface SizeSectionProps {
-  title: string
-  sizes: Array<{ id: string; w: number; h: number; label: string }>
-  onSelectSize: (size: { id: string; w: number; h: number }) => void
-}
-
-function SizeSection({ title, sizes, onSelectSize }: SizeSectionProps) {
-  return (
-    <div>
-      <h3 style={{
-        fontSize: '12px',
-        fontWeight: '600',
-        color: '#6b7280',
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px',
-        marginBottom: '16px'
-      }}>
-        {title}
-      </h3>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-        gap: '12px'
-      }}>
-        {sizes.map((size) => (
-          <button
-            key={size.id}
-            onClick={() => onSelectSize(size)}
-            style={{
-              background: '#ffffff',
-              border: '1px solid #d1d5db',
-              borderRadius: '8px',
-              padding: '16px',
-              cursor: 'pointer',
-              textAlign: 'left',
-              transition: 'all 0.15s'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#60a5fa'
-              e.currentTarget.style.background = '#eff6ff'
-              e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#d1d5db'
-              e.currentTarget.style.background = '#ffffff'
-              e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.boxShadow = 'none'
-            }}
-          >
-            <div style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#111827',
-              marginBottom: '6px'
-            }}>
-              {size.label}
-            </div>
-            <div style={{
-              fontSize: '13px',
-              color: '#6b7280'
-            }}>
-              {size.w} × {size.h} px
-            </div>
-          </button>
-        ))}
-      </div>
     </div>
   )
 }

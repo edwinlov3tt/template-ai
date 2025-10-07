@@ -3,6 +3,9 @@ import type { Slot, Template } from '../../schema/types'
 import { createTransform } from '../../utils/svgTransforms'
 import { shapeRegistry, type ShapeDefinition } from '../../shapes/registry'
 import { renderShapeGeometry } from '../../shapes/render'
+import { InlineTextEditor } from '../../components/typography/InlineTextEditor'
+import { useEditorStore } from '../../state/editorStore'
+import { applyTextTransform } from '../../utils/textHelpers'
 
 export interface SlotRendererProps {
   slot: Slot
@@ -18,6 +21,8 @@ export interface SlotRendererProps {
  */
 export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown }: SlotRendererProps) {
   const { x, y, width, height, rotation = 0 } = frame
+  const { editingSlot, updateSlot, stopEditing } = useEditorStore()
+  const setHoveredSlot = useEditorStore(state => state.setHoveredSlot)
 
   // Use native SVG positioning - no transforms needed!
   // The viewBox handles all coordinate mapping automatically
@@ -30,12 +35,27 @@ export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown 
     onClick: (e: React.MouseEvent<SVGGElement>) => {
       e.stopPropagation()
     },
+    onMouseEnter: () => {
+      setHoveredSlot(slot.name)
+    },
+    onMouseLeave: () => {
+      setHoveredSlot(null)
+    },
     style: {
       cursor: slot.locked ? 'default' : 'move',
       pointerEvents: slot.locked ? 'none' : 'auto'
     } as React.CSSProperties,
     'data-slot-name': slot.name,
     'data-slot-type': slot.type
+  }
+
+  // Text-specific props (cursor only, double-click handled by SelectionOverlay)
+  const textInteractiveProps = {
+    ...interactiveProps,
+    style: {
+      ...interactiveProps.style,
+      cursor: slot.locked ? 'default' : 'text' // Always show text cursor for text slots
+    }
   }
 
   // Don't render if not visible
@@ -107,18 +127,38 @@ export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown 
     }
 
     case 'text': {
-      const content = slot.content || template.sample?.[slot.name] || ''
-
-      // Don't render text slots with no content (Canva text is converted to paths)
-      if (!content) {
-        return null
-      }
+      const content = String(slot.content || template.sample?.[slot.name] || slot.placeholder || 'Add text')
 
       const fontSize = slot.fontSize || 16
       const fontFamily = slot.fontFamily || template.tokens.typography.heading?.family || 'Inter'
       const fontWeight = slot.fontWeight || 'normal'
-      const fill = slot.fill || '#000000'
+      const fill = String((slot.color ?? slot.fill) || '#000000')
       const textAlign = slot.textAlign || 'left'
+      const fontStyle = slot.fontStyle || 'normal'
+      const letterSpacing = slot.letterSpacing || 0
+      const lineHeight = slot.lineHeight || 1.2
+      const opacity = slot.opacity ?? 1
+      const textTransform = slot.textTransform || 'none'
+      const textDecoration = slot.textDecoration || {}
+
+      // Check if this slot is being edited
+      const isEditing = editingSlot === slot.name
+
+      // If editing, render InlineTextEditor
+      if (isEditing) {
+        return (
+          <InlineTextEditor
+            slot={slot}
+            frame={frame}
+            initialContent={content}
+            onSave={(newContent) => {
+              updateSlot(slot.name, { content: newContent })
+              stopEditing()
+            }}
+            onCancel={stopEditing}
+          />
+        )
+      }
 
       let textAnchor: 'start' | 'middle' | 'end' = 'start'
       let xPos = x
@@ -130,19 +170,53 @@ export function SlotRenderer({ slot, frame, template, isSelected, onPointerDown 
         xPos = x + width
       }
 
+      // Apply text transform
+      const transformedContent = applyTextTransform(content, textTransform as any)
+
+      // Show placeholder if no content
+      const isPlaceholder = !slot.content && !template.sample?.[slot.name]
+
+      // Check for underline/strikethrough
+      const hasUnderline = (textDecoration as any)?.underline
+      const hasStrikethrough = (textDecoration as any)?.strike
+
       return (
-        <g {...interactiveProps}>
-          <text
-            x={xPos}
-            y={y + fontSize}
-            fill={fill}
-            fontSize={fontSize}
-            fontFamily={fontFamily}
-            fontWeight={fontWeight}
-            textAnchor={textAnchor}
+        <g {...textInteractiveProps} opacity={opacity}>
+          <foreignObject
+            x={x}
+            y={y}
+            width={width}
+            height={height}
+            style={{ overflow: 'visible' }}
           >
-            {content}
-          </text>
+            <div
+              style={{
+                width: '100%',
+                minHeight: `${height}px`,
+                fontSize: `${fontSize}px`,
+                fontFamily,
+                fontWeight: fontWeight as any,
+                fontStyle,
+                color: isPlaceholder ? '#9ca3af' : fill,
+                textAlign: textAlign as any,
+                letterSpacing: `${letterSpacing}px`,
+                lineHeight: lineHeight,
+                opacity: isPlaceholder ? 0.6 : 1,
+                padding: '4px', // Match InlineTextEditor padding for WYSIWYG
+                boxSizing: 'border-box',
+                whiteSpace: 'pre-wrap', // Preserve newlines and wrap text
+                wordWrap: 'break-word', // Break long words
+                overflowWrap: 'break-word',
+                overflow: 'visible', // Allow content to expand
+                textDecoration: [
+                  hasUnderline ? 'underline' : '',
+                  hasStrikethrough ? 'line-through' : ''
+                ].filter(Boolean).join(' ') || 'none'
+              } as React.CSSProperties}
+            >
+              {transformedContent}
+            </div>
+          </foreignObject>
         </g>
       )
     }

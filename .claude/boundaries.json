@@ -49,5 +49,43 @@
     "src/state/editorStore.ts",
     "src/components/RightRail.tsx",
     "src/App.tsx"
+  ],
+  "feature/color-core": [
+    "src/editor/color/types.ts",
+    "src/editor/color/colorMath.ts",
+    "src/editor/color/gradientDefs.ts",
+    "src/editor/color/validators.ts",
+    "src/editor/color/migrations.ts",
+    "src/editor/color/__tests__/**",
+    "src/schema/types.ts"
+  ],
+  "feature/color-panel-ui": [
+    "src/components/color/**",
+    "src/editor/color/defaultPalettes.ts",
+    "src/state/editorStore.ts",
+    "src/components/RightRail.tsx"
+  ],
+  "feature/gradient-editor": [
+    "src/components/color/Gradient*.tsx",
+    "src/editor/color/gradientMath.ts",
+    "src/editor/color/__tests__/gradientMath.test.ts",
+    "src/state/editorStore.ts"
+  ],
+  "infra/image-palette-worker": [
+    "src/workers/paletteWorker.ts",
+    "src/workers/__tests__/**",
+    "src/hooks/useImagePalette.ts",
+    "src/components/color/PhotoColors*.tsx",
+    "src/components/color/ChangeAllDialog.tsx",
+    "src/editor/color/imageHash.ts",
+    "src/editor/color/paletteCache.ts",
+    "src/state/editorStore.ts"
+  ],
+  "feature/contrast-gates": [
+    "src/editor/color/contrastChecker.ts",
+    "src/editor/color/contrastFixes.ts",
+    "src/editor/color/__tests__/contrastChecker.test.ts",
+    "src/components/color/Contrast*.tsx",
+    "src/state/editorStore.ts"
   ]
 }

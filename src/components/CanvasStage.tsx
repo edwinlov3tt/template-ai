@@ -1,9 +1,9 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useCallback } from 'react'
 import { useGesture } from '@use-gesture/react'
 import { Flex } from 'antd'
 import { SvgStage } from '../editor/svg/SvgStage'
 import { SvgStageV2 } from '../editor/svg-v2/SvgStageV2'
-import { SearchOutlined, ZoomInOutlined, ZoomOutOutlined, BorderOutlined } from '@ant-design/icons'
+import { SearchOutlined, ZoomInOutlined, ZoomOutOutlined, BorderOutlined, PlusOutlined } from '@ant-design/icons'
 import type { Template } from '../schema/types'
 import type { SmartSnapOptions } from '../editor/utils/smartSnapping'
 import { LayerActionsChipOverlay } from './LayerActionsChipOverlay'
@@ -53,7 +53,7 @@ export function CanvasStage({
   onZoomChange,
   sidebarWidth = 76,
   snapToGrid = false,
-  snapGridSize = 10,
+  snapGridSize = 4,
   smartSnapOptions
 }: CanvasStageInternalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -69,7 +69,10 @@ export function CanvasStage({
   const reorderPage = useEditorStore(state => state.reorderPage)
   const duplicatePage = useEditorStore(state => state.duplicatePage)
   const deletePage = useEditorStore(state => state.deletePage)
+  const addPage = useEditorStore(state => state.addPage)
   const canvasSize = useEditorStore(state => state.canvasSize)
+  const setCanvasSelected = useEditorStore(state => state.setCanvasSelected)
+  const setHoveredSlot = useEditorStore(state => state.setHoveredSlot)
 
   // Smooth pan and pinch-to-zoom gestures (only when pan enabled)
   const bind = useGesture(
@@ -108,6 +111,20 @@ export function CanvasStage({
   const scaledHeight = totalUnscaledHeight * (zoom / 100)
   const scaledWidth = width * (zoom / 100)
 
+  const handleContainerMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+
+    const target = event.target as HTMLElement
+
+    if (target.closest('[data-canvas-svg="true"]')) {
+      return
+    }
+
+    setHoveredSlot(null)
+    onSelectionChange([])
+    setCanvasSelected(false)
+  }, [onSelectionChange, setHoveredSlot, setCanvasSelected])
+
   return (
     <div
       style={{
@@ -132,6 +149,7 @@ export function CanvasStage({
       <div
         ref={containerRef}
         {...bind()}
+        onMouseDownCapture={handleContainerMouseDownCapture}
         style={{
           width: '100%',
           height: '100%',
@@ -193,6 +211,7 @@ export function CanvasStage({
                     onMoveDown={() => reorderPage(page.id, 'down')}
                     onDuplicate={() => duplicatePage(page.id)}
                     onDelete={() => deletePage(page.id)}
+                    onAddPage={() => addPage()}
                   />
                 </div>
 
@@ -282,6 +301,51 @@ export function CanvasStage({
                 </div>
               </div>
             ))}
+
+            {/* Add Page Button - Canva-style, at bottom of all pages */}
+            {template && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                paddingTop: '20px',
+                paddingBottom: '20px',
+                marginTop: '16px',
+                animation: 'fadeIn 0.4s ease-out'
+              }}>
+                <button
+                  onClick={() => addPage()}
+                  type="button"
+                  style={{
+                    border: '1px solid #d1d5db',
+                    background: '#f9fafb',
+                    cursor: 'pointer',
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#4b5563',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s',
+                    height: 'auto'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f3f4f6'
+                    e.currentTarget.style.borderColor = '#9ca3af'
+                    e.currentTarget.style.color = '#374151'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#f9fafb'
+                    e.currentTarget.style.borderColor = '#d1d5db'
+                    e.currentTarget.style.color = '#4b5563'
+                  }}
+                >
+                  <PlusOutlined style={{ fontSize: '16px', strokeWidth: '2.5' }} />
+                  <span>Add Page</span>
+                </button>
+              </div>
+            )}
             </div>
           </div>
         </Flex>
