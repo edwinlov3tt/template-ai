@@ -78,13 +78,13 @@ export interface EditorState {
   documentSwatches: Paint[]
   recentPaints: Paint[]
   colorPanelOpen: boolean
-  activePanelSection: 'main' | 'solid-picker' | 'photo-colors' | 'default-colors'
+  activePanelSection: 'main' | 'solid-picker' | 'gradient-picker' | 'photo-colors' | 'default-colors'
   addDocumentSwatch: (paint: Paint) => void
   removeDocumentSwatch: (index: number) => void
   addRecentPaint: (paint: Paint) => void
   updateSlotFill: (slotId: string, paint: Paint) => void
   toggleColorPanel: () => void
-  setActivePanelSection: (section: 'main' | 'solid-picker' | 'photo-colors' | 'default-colors') => void
+  setActivePanelSection: (section: 'main' | 'solid-picker' | 'gradient-picker' | 'photo-colors' | 'default-colors') => void
 
   // Slot modifications
   updateSlot: (slotName: string, updates: Partial<Slot>, description?: string) => void
