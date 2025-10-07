@@ -449,7 +449,10 @@ export default function Editor() {
 
           {/* Canvas Properties Panel - Show when canvas background is selected */}
           {canvasSelected && currentPageId && (
-            <CanvasPropertiesPanel pageId={currentPageId} />
+            <CanvasPropertiesPanel
+              pageId={currentPageId}
+              onOpenColorPanel={() => setColorPanelOpen(true)}
+            />
           )}
 
           {/* Floating Layers Panel - Only show when template exists */}

@@ -1,15 +1,14 @@
 import React from 'react'
 import { useEditorStore } from '../state/editorStore'
-import { ColorPicker } from 'antd'
-import type { Color } from 'antd/es/color-picker'
+import { Square } from 'lucide-react'
 
 interface CanvasPropertiesPanelProps {
   pageId: string
+  onOpenColorPanel?: () => void
 }
 
-export function CanvasPropertiesPanel({ pageId }: CanvasPropertiesPanelProps) {
+export function CanvasPropertiesPanel({ pageId, onOpenColorPanel }: CanvasPropertiesPanelProps) {
   const template = useEditorStore(state => state.template)
-  const updatePageBackgroundColor = useEditorStore(state => state.updatePageBackgroundColor)
 
   if (!template) return null
 
@@ -17,10 +16,6 @@ export function CanvasPropertiesPanel({ pageId }: CanvasPropertiesPanelProps) {
   if (!page) return null
 
   const backgroundColor = page.backgroundColor || '#ffffff'
-
-  const handleColorChange = (color: Color) => {
-    updatePageBackgroundColor(pageId, color.toHexString())
-  }
 
   return (
     <div style={{
@@ -45,28 +40,40 @@ export function CanvasPropertiesPanel({ pageId }: CanvasPropertiesPanelProps) {
       }}>
         Background Color
       </span>
-      <ColorPicker
-        value={backgroundColor}
-        onChange={handleColorChange}
-        showText
-        presets={[
-          {
-            label: 'Recommended',
-            colors: [
-              '#ffffff',
-              '#f3f4f6',
-              '#e5e7eb',
-              '#000000',
-              '#1a1a1a',
-              '#3b82f6',
-              '#ef4444',
-              '#22c55e',
-              '#f59e0b',
-              '#8b5cf6'
-            ]
+      <button
+        onClick={() => {
+          if (onOpenColorPanel) {
+            onOpenColorPanel()
           }
-        ]}
-      />
+        }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '6px 12px',
+          background: '#ffffff',
+          border: '1px solid #d1d5db',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          transition: 'all 0.15s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = '#3b82f6'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = '#d1d5db'
+        }}
+      >
+        <Square size={20} color="#374151" fill={backgroundColor} strokeWidth={1.5} />
+        <span style={{
+          fontSize: '13px',
+          fontWeight: '500',
+          color: '#374151',
+          fontFamily: 'monospace'
+        }}>
+          {backgroundColor.toUpperCase()}
+        </span>
+      </button>
     </div>
   )
 }
