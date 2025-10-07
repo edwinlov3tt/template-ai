@@ -76,6 +76,20 @@ export default function Editor() {
   // Calculate sidebar width: icon bar (76px) + panel (300px if open)
   const sidebarWidth = 76 + (!leftPanelCollapsed && activeTool ? 300 : 0)
 
+  // Close color panel when left sidebar tool changes
+  React.useEffect(() => {
+    if (activeTool) {
+      setColorPanelOpen(false)
+    }
+  }, [activeTool])
+
+  // Close left sidebar when color panel opens
+  React.useEffect(() => {
+    if (colorPanelOpen && activeTool) {
+      setActiveTool(null)
+    }
+  }, [colorPanelOpen])
+
   // Get current page and its slots
   const currentPage = template?.pages.find(p => p.id === currentPageId)
   const currentPageSlots = currentPage?.slots || []
@@ -458,7 +472,7 @@ export default function Editor() {
             <div style={{
               position: 'absolute',
               top: '16px',
-              left: `${sidebarWidth + 16}px`,
+              left: '92px', // Fixed position: 76px (icon bar) + 16px (margin)
               width: '300px',
               maxHeight: 'calc(100vh - 128px)',
               background: '#1a1a1a',
