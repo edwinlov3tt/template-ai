@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { HexColorPicker, HexColorInput } from 'react-colorful'
 import type { Paint } from '../../editor/color/types'
+import { useEditorStore } from '../../state/editorStore'
 
 interface SolidColorPickerProps {
   initialColor?: string
@@ -18,6 +19,7 @@ export const SolidColorPicker: React.FC<SolidColorPickerProps> = ({
 }) => {
   const [color, setColor] = useState(initialColor)
   const [eyedropperSupported] = useState(() => 'EyeDropper' in window)
+  const setActivePanelSection = useEditorStore((state) => state.setActivePanelSection)
 
   // Handle color change
   const handleColorChange = useCallback((newColor: string) => {
@@ -67,16 +69,24 @@ export const SolidColorPicker: React.FC<SolidColorPickerProps> = ({
           Solid color
         </button>
         <button
-          disabled
+          onClick={() => setActivePanelSection('gradient-picker')}
           style={{
             flex: 1,
             padding: '8px',
             background: 'none',
             border: 'none',
             borderBottom: '2px solid transparent',
-            color: '#71717a',
+            color: '#e5e7eb',
             fontSize: '13px',
-            cursor: 'not-allowed'
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = '#3b82f6'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = '#e5e7eb'
           }}
         >
           Gradient

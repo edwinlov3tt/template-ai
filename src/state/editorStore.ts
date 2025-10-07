@@ -3,7 +3,9 @@ import type { Template, Slot, Page } from '../schema/types'
 import { shapeRegistry, type ShapeId } from '../shapes/registry'
 import { initializeHistory, addVersion, undo as undoHistory, redo as redoHistory, canUndo as checkCanUndo, canRedo as checkCanRedo, type HistoryState } from '../history/versionControl'
 import { migrateTemplate } from '../utils/templateMigration'
-import type { Paint } from '../editor/color/types'
+import type { Paint, LinearGradientPaint, RadialGradientPaint, GradientStop } from '../editor/color/types'
+import { sortStops, interpolateStopColor } from '../editor/color/gradientMath'
+import { clampToSrgb } from '../editor/color/colorMath'
 
 export interface EditorState {
   // Template & content
@@ -47,6 +49,22 @@ export interface EditorState {
   editingSlot: string | null
   startEditing: (slotName: string) => void
   stopEditing: () => void
+
+  // Gradient editing
+  editingGradient: {
+    slotId: string
+    paint: LinearGradientPaint | RadialGradientPaint
+    selectedStopIndex: number
+  } | null
+  startEditingGradient: (slotId: string, paint: LinearGradientPaint | RadialGradientPaint) => void
+  stopEditingGradient: () => void
+  updateGradientStyle: (style: 'linear' | 'radial') => void
+  updateGradientAngle: (angle: number) => void
+  updateGradientPosition: (cx: number, cy: number, r: number) => void
+  updateGradientStop: (index: number, stop: GradientStop) => void
+  addGradientStop: (offset: number) => void
+  removeGradientStop: (index: number) => void
+  selectGradientStop: (index: number) => void
 
   // Canvas view
   canvasSize: { id: string; w: number; h: number }
@@ -94,6 +112,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   currentPageId: null,
   selectedSlots: [],
   editingSlot: null,
+  editingGradient: null,
   hoveredSlot: null,
   canvasSelected: false,
   canvasSize: { id: '1:1', w: 1080, h: 1080 },
@@ -398,6 +417,210 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   stopEditing: () => {
     set({ editingSlot: null })
+  },
+
+  // Gradient editing actions
+  startEditingGradient: (slotId, paint) => {
+    set({
+      editingGradient: {
+        slotId,
+        paint,
+        selectedStopIndex: 0 // Select first stop by default
+      }
+    })
+  },
+
+  stopEditingGradient: () => {
+    set({ editingGradient: null })
+  },
+
+  updateGradientStyle: (style) => {
+    const { editingGradient, template, history } = get()
+    if (!editingGradient || !template) return
+
+    const currentPaint = editingGradient.paint
+
+    // Convert gradient type
+    let newPaint: LinearGradientPaint | RadialGradientPaint
+
+    if (style === 'linear') {
+      // Convert to linear (use existing stops)
+      newPaint = {
+        kind: 'linear-gradient',
+        angle: currentPaint.kind === 'linear-gradient' ? currentPaint.angle : 0,
+        stops: currentPaint.stops
+      }
+    } else {
+      // Convert to radial (use existing stops)
+      newPaint = {
+        kind: 'radial-gradient',
+        cx: currentPaint.kind === 'radial-gradient' ? currentPaint.cx : 0.5,
+        cy: currentPaint.kind === 'radial-gradient' ? currentPaint.cy : 0.5,
+        radius: currentPaint.kind === 'radial-gradient' ? currentPaint.radius : 0.5,
+        stops: currentPaint.stops
+      }
+    }
+
+    // Update editing state
+    set({
+      editingGradient: {
+        ...editingGradient,
+        paint: newPaint
+      }
+    })
+
+    // Update slot fill in template (will be done on apply)
+  },
+
+  updateGradientAngle: (angle) => {
+    const { editingGradient } = get()
+    if (!editingGradient || editingGradient.paint.kind !== 'linear-gradient') return
+
+    const newPaint: LinearGradientPaint = {
+      ...editingGradient.paint,
+      angle
+    }
+
+    set({
+      editingGradient: {
+        ...editingGradient,
+        paint: newPaint
+      }
+    })
+  },
+
+  updateGradientPosition: (cx, cy, r) => {
+    const { editingGradient } = get()
+    if (!editingGradient || editingGradient.paint.kind !== 'radial-gradient') return
+
+    const newPaint: RadialGradientPaint = {
+      ...editingGradient.paint,
+      cx,
+      cy,
+      radius: r
+    }
+
+    set({
+      editingGradient: {
+        ...editingGradient,
+        paint: newPaint
+      }
+    })
+  },
+
+  updateGradientStop: (index, stop) => {
+    const { editingGradient } = get()
+    if (!editingGradient) return
+
+    const currentPaint = editingGradient.paint
+    const newStops = [...currentPaint.stops]
+
+    // Clamp color to sRGB
+    const clampedStop = {
+      ...stop,
+      color: clampToSrgb(stop.color)
+    }
+
+    newStops[index] = clampedStop
+
+    // Sort stops by offset
+    sortStops(newStops)
+
+    const newPaint = {
+      ...currentPaint,
+      stops: newStops
+    } as LinearGradientPaint | RadialGradientPaint
+
+    set({
+      editingGradient: {
+        ...editingGradient,
+        paint: newPaint
+      }
+    })
+  },
+
+  addGradientStop: (offset) => {
+    const { editingGradient } = get()
+    if (!editingGradient) return
+
+    const currentPaint = editingGradient.paint
+    const currentStops = currentPaint.stops
+
+    // Enforce max 10 stops
+    if (currentStops.length >= 10) {
+      console.warn('Maximum 10 gradient stops allowed')
+      return
+    }
+
+    // Interpolate color at offset
+    const color = interpolateStopColor(currentStops, offset)
+    const newStop: GradientStop = { offset, color }
+
+    const newStops = [...currentStops, newStop]
+    sortStops(newStops)
+
+    // Find the index of the newly added stop after sorting
+    const newStopIndex = newStops.findIndex(s => s.offset === offset && s.color === color)
+
+    const newPaint = {
+      ...currentPaint,
+      stops: newStops
+    } as LinearGradientPaint | RadialGradientPaint
+
+    set({
+      editingGradient: {
+        ...editingGradient,
+        paint: newPaint,
+        selectedStopIndex: newStopIndex >= 0 ? newStopIndex : editingGradient.selectedStopIndex
+      }
+    })
+  },
+
+  removeGradientStop: (index) => {
+    const { editingGradient } = get()
+    if (!editingGradient) return
+
+    const currentPaint = editingGradient.paint
+    const currentStops = currentPaint.stops
+
+    // Enforce min 2 stops
+    if (currentStops.length <= 2) {
+      console.warn('Minimum 2 gradient stops required')
+      return
+    }
+
+    const newStops = currentStops.filter((_, i) => i !== index)
+
+    const newPaint = {
+      ...currentPaint,
+      stops: newStops
+    } as LinearGradientPaint | RadialGradientPaint
+
+    // Adjust selected stop index if needed
+    let newSelectedIndex = editingGradient.selectedStopIndex
+    if (newSelectedIndex >= newStops.length) {
+      newSelectedIndex = newStops.length - 1
+    }
+
+    set({
+      editingGradient: {
+        ...editingGradient,
+        paint: newPaint,
+        selectedStopIndex: newSelectedIndex
+      }
+    })
+  },
+
+  selectGradientStop: (index) => {
+    const { editingGradient } = get()
+    if (!editingGradient) return
+
+    set({
+      editingGradient: {
+        ...editingGradient,
+        selectedStopIndex: index
+      }
+    })
   },
 
   // Page management actions

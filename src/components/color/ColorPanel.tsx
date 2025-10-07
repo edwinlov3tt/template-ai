@@ -8,6 +8,7 @@ import { DefaultSolidColors } from './DefaultSolidColors'
 import { DefaultGradientColors } from './DefaultGradientColors'
 import { RecentlyUsed } from './RecentlyUsed'
 import { SolidColorPicker } from './SolidColorPicker'
+import { GradientColorPicker } from './GradientColorPicker'
 
 /**
  * Main color panel component
@@ -32,8 +33,8 @@ export const ColorPanel: React.FC = () => {
     setActivePanelSection('main')
   }, [setActivePanelSection])
 
-  // Render expanded view (solid picker or default colors)
-  if (activePanelSection === 'solid-picker' || activePanelSection === 'default-colors') {
+  // Render expanded view (solid picker, gradient picker, or default colors)
+  if (activePanelSection === 'solid-picker' || activePanelSection === 'gradient-picker' || activePanelSection === 'default-colors') {
     return (
       <div style={{
         height: '100%',
@@ -85,7 +86,8 @@ export const ColorPanel: React.FC = () => {
             fontSize: '14px',
             fontWeight: '500'
           }}>
-            {activePanelSection === 'solid-picker' ? 'Color Picker' : 'All Colors'}
+            {activePanelSection === 'solid-picker' ? 'Color Picker' :
+             activePanelSection === 'gradient-picker' ? 'Gradient Picker' : 'All Colors'}
           </span>
         </div>
 
@@ -94,9 +96,12 @@ export const ColorPanel: React.FC = () => {
           flex: 1,
           overflow: 'auto'
         }}>
-          <SolidColorPicker
-            onApplyColor={handleApplyColor}
-          />
+          {activePanelSection === 'solid-picker' && (
+            <SolidColorPicker onApplyColor={handleApplyColor} />
+          )}
+          {activePanelSection === 'gradient-picker' && (
+            <GradientColorPicker />
+          )}
         </div>
       </div>
     )
