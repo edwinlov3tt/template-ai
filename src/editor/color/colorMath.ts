@@ -18,9 +18,9 @@ export function parseColor(input: string): ReturnType<typeof parse> {
   try {
     const result = parse(input);
     // culori returns undefined for invalid colors
-    return result ?? null;
+    return result;
   } catch {
-    return null;
+    return undefined;
   }
 }
 

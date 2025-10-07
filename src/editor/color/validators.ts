@@ -39,51 +39,57 @@ export function validatePaint(paint: unknown): paint is Paint {
 /**
  * Validate a solid paint
  */
-function validateSolidPaint(p: Record<string, unknown>): p is SolidPaint {
-  if (typeof p.color !== 'string') {
+function validateSolidPaint(p: unknown): p is SolidPaint {
+  if (typeof p !== 'object' || p === null) return false;
+  const paint = p as Record<string, unknown>;
+  if (typeof paint.color !== 'string') {
     return false;
   }
 
   // Verify color is parseable
-  return parseColor(p.color) !== null;
+  return parseColor(paint.color) !== undefined;
 }
 
 /**
  * Validate a linear gradient paint
  */
-function validateLinearGradientPaint(p: Record<string, unknown>): p is LinearGradientPaint {
-  if (typeof p.angle !== 'number') {
+function validateLinearGradientPaint(p: unknown): p is LinearGradientPaint {
+  if (typeof p !== 'object' || p === null) return false;
+  const paint = p as Record<string, unknown>;
+  if (typeof paint.angle !== 'number') {
     return false;
   }
 
-  if (!Array.isArray(p.stops)) {
+  if (!Array.isArray(paint.stops)) {
     return false;
   }
 
-  return p.stops.every(validateGradientStop);
+  return paint.stops.every(validateGradientStop);
 }
 
 /**
  * Validate a radial gradient paint
  */
-function validateRadialGradientPaint(p: Record<string, unknown>): p is RadialGradientPaint {
-  if (typeof p.cx !== 'number' || typeof p.cy !== 'number' || typeof p.radius !== 'number') {
+function validateRadialGradientPaint(p: unknown): p is RadialGradientPaint {
+  if (typeof p !== 'object' || p === null) return false;
+  const paint = p as Record<string, unknown>;
+  if (typeof paint.cx !== 'number' || typeof paint.cy !== 'number' || typeof paint.radius !== 'number') {
     return false;
   }
 
-  if (p.cx < 0 || p.cx > 1 || p.cy < 0 || p.cy > 1) {
+  if (paint.cx < 0 || paint.cx > 1 || paint.cy < 0 || paint.cy > 1) {
     return false;
   }
 
-  if (p.radius < 0 || p.radius > 1) {
+  if (paint.radius < 0 || paint.radius > 1) {
     return false;
   }
 
-  if (!Array.isArray(p.stops)) {
+  if (!Array.isArray(paint.stops)) {
     return false;
   }
 
-  return p.stops.every(validateGradientStop);
+  return paint.stops.every(validateGradientStop);
 }
 
 /**
