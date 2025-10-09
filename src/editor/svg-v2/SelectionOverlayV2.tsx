@@ -123,13 +123,16 @@ export function SelectionOverlayV2({
   const scale = ctm ? ctm.a : 1
 
   // Handle sizes in screen pixels (divided by scale for constant viewport size)
-  const handleSize = 12 / scale
-  const edgeHandleWidth = 20 / scale
-  const edgeHandleHeight = 8 / scale
-  const borderRadius = selectedSlots.length === 1 ? 8 / scale : 0
-  const borderWidth = 2 / scale
-  const rotateHandleDistance = 40 / scale
-  const rotateHandleRadius = 12 / scale
+  // Clamped to ensure handles stay readable at all zoom levels
+  // Increased minimums for better visibility
+  const clamp = (min: number, max: number, value: number) => Math.max(min, Math.min(max, value))
+  const handleSize = clamp(12, 24, 12 / scale)  // Increased from 10-20 to 12-24
+  const edgeHandleWidth = clamp(16, 32, 20 / scale)
+  const edgeHandleHeight = clamp(6, 12, 8 / scale)
+  const borderRadius = selectedSlots.length === 1 ? clamp(4, 12, 8 / scale) : 0
+  const borderWidth = clamp(1.5, 3, 2 / scale)
+  const rotateHandleDistance = clamp(48, 72, 40 / scale)  // Increased from 32-56 to 48-72
+  const rotateHandleRadius = clamp(14, 22, 12 / scale)  // Increased from 10-18 to 14-22
 
   // Calculate bounding box for multi-select or single slot
   const getBoundingBox = useCallback(() => {

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Embed Test - Template Editor</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #2563eb;
+    }
+
+    button:disabled {
+      background: #d1d5db;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #6b7280;
+    }
+
+    button.secondary:hover {
+      background: #4b5563;
+    }
+
+    .log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 15px;
+    }
+
+    .log-entry {
+      margin-bottom: 8px;
+      border-left: 3px solid #3b82f6;
+      padding-left: 10px;
+    }
+
+    .log-entry.error {
+      border-left-color: #ef4444;
+      color: #fca5a5;
+    }
+
+    .log-entry.success {
+      border-left-color: #10b981;
+      color: #86efac;
+    }
+
+    .iframe-container {
+      background: white;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      height: 80vh;
+      display: none;
+    }
+
+    .iframe-container.visible {
+      display: block;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      border-radius: 4px;
+    }
+
+    .results {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      display: none;
+    }
+
+    .results.visible {
+      display: block;
+    }
+
+    .results h2 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .result-item {
+      margin-bottom: 15px;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 6px;
+    }
+
+    .result-item h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+
+    .result-item img {
+      max-width: 300px;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+    }
+
+    .result-item pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Template Editor Embed Test</h1>
+
+    <div class="controls">
+      <div class="button-group">
+        <button id="openBtn">Open Editor (Full Mode)</button>
+        <button id="openCropBtn">Open Editor (Crop Mode)</button>
+        <button id="closeBtn" disabled>Close Editor</button>
+        <button id="clearBtn" class="secondary">Clear Results</button>
+      </div>
+
+      <div class="log" id="log">
+        <div class="log-entry">Waiting for user action...</div>
+      </div>
+    </div>
+
+    <div class="iframe-container" id="iframeContainer">
+      <iframe id="editorFrame" src=""></iframe>
+    </div>
+
+    <div class="results" id="results">
+      <h2>Export Results</h2>
+      <div id="resultsContent"></div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const EDITOR_URL = 'http://localhost:5173/embed'
+    const ALLOWED_ORIGIN = 'http://localhost:5173'
+
+    // DOM Elements
+    const iframe = document.getElementById('editorFrame')
+    const iframeContainer = document.getElementById('iframeContainer')
+    const openBtn = document.getElementById('openBtn')
+    const openCropBtn = document.getElementById('openCropBtn')
+    const closeBtn = document.getElementById('closeBtn')
+    const clearBtn = document.getElementById('clearBtn')
+    const logEl = document.getElementById('log')
+    const resultsEl = document.getElementById('results')
+    const resultsContent = document.getElementById('resultsContent')
+
+    // State
+    let editorReady = false
+    let editorOpen = false
+
+    // Logging utility
+    function log(message, type = 'info') {
+      const entry = document.createElement('div')
+      entry.className = `log-entry ${type}`
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`
+      logEl.appendChild(entry)
+      logEl.scrollTop = logEl.scrollHeight
+      console.log(`[Parent] ${message}`)
+    }
+
+    // Sample template data
+    const sampleTemplate = {
+      id: 'embed-test-template',
+      version: 1,
+      canvas: {
+        baseViewBox: [0, 0, 2000, 2000],
+        ratios: ['1:1', '4:5', '9:16']
+      },
+      pages: [{
+        id: 'page-1',
+        name: 'Page 1',
+        slots: [
+          {
+            name: 'bg',
+            type: 'image',
+            z: 0,
+            locked: true
+          },
+          {
+            name: 'headline',
+            type: 'text',
+            z: 10,
+            content: 'Edit Me!',
+            fontSize: 120,
+            fontFamily: 'Inter',
+            fontWeight: 700,
+            fill: '#000000'
+          }
+        ],
+        frames: {
+          '1:1': {
+            bg: { x: 0, y: 0, width: 2000, height: 2000 },
+            headline: { x: 100, y: 900, width: 1800, height: 200 }
+          }
+        },
+        preferredRatio: '1:1'
+      }],
+      tokens: {
+        palette: {
+          primary: '#3b82f6',
+          secondary: '#10b981',
+          background: '#ffffff',
+          text: '#111827'
+        },
+        typography: {
+          heading: {
+            family: 'Inter',
+            weight: 700,
+            minSize: 24,
+            maxSize: 200
+          },
+          body: {
+            family: 'Inter',
+            weight: 400,
+            minSize: 14,
+            maxSize: 72
+          }
+        }
+      },
+      constraints: {},
+      accessibility: {
+        contrastPolicy: {
+          mode: 'WCAG',
+          min: 4.5
+        }
+      }
+    }
+
+    // PostMessage handler
+    window.addEventListener('message', (event) => {
+      // Validate origin
+      if (event.origin !== ALLOWED_ORIGIN) {
+        console.warn('[Parent] Rejected message from untrusted origin:', event.origin)
+        return
+      }
+
+      const message = event.data
+
+      // Validate message structure
+      if (!message || typeof message !== 'object' || !message.type?.startsWith('editor:')) {
+        return
+      }
+
+      log(`Received: ${message.type}`, 'info')
+
+      switch (message.type) {
+        case 'editor:ready':
+          editorReady = true
+          log('Editor is ready!', 'success')
+          log(`Capabilities: ${message.payload.capabilities.join(', ')}`)
+          break
+
+        case 'editor:change':
+          log(`Editor changed (hasChanges: ${message.payload.hasChanges})`)
+          if (message.payload.modifiedSlots?.length) {
+            log(`Modified slots: ${message.payload.modifiedSlots.join(', ')}`)
+          }
+          break
+
+        case 'editor:complete':
+          log('Editor completed! Processing results...', 'success')
+          handleComplete(message.payload)
+          closeEditor()
+          break
+
+        case 'editor:cancel':
+          log('Editor cancelled', 'info')
+          closeEditor()
+          break
+
+        case 'editor:error':
+          log(`Error: ${message.payload.error}`, 'error')
+          if (message.payload.details) {
+            log(`Details: ${message.payload.details}`, 'error')
+          }
+          break
+
+        default:
+          log(`Unknown message type: ${message.type}`)
+      }
+    })
+
+    // Open editor
+    function openEditor(mode = 'full') {
+      if (!editorReady) {
+        // Load iframe first
+        log('Loading editor iframe...')
+        iframe.src = EDITOR_URL
+        iframeContainer.classList.add('visible')
+
+        // Wait for ready message, then send open
+        const readyHandler = (event) => {
+          if (event.data?.type === 'editor:ready') {
+            window.removeEventListener('message', readyHandler)
+            setTimeout(() => sendOpenMessage(mode), 100)
+          }
+        }
+        window.addEventListener('message', readyHandler)
+      } else {
+        sendOpenMessage(mode)
+      }
+
+      editorOpen = true
+      openBtn.disabled = true
+      openCropBtn.disabled = true
+      closeBtn.disabled = false
+    }
+
+    function sendOpenMessage(mode) {
+      log(`Sending open message (mode: ${mode})...`)
+      iframe.contentWindow.postMessage({
+        type: 'editor:open',
+        payload: {
+          mode: mode,
+          template: sampleTemplate,
+          ratio: '1:1'
+        }
+      }, ALLOWED_ORIGIN)
+      iframeContainer.classList.add('visible')
+    }
+
+    // Close editor
+    function closeEditor() {
+      log('Closing editor...')
+      iframe.contentWindow?.postMessage({
+        type: 'editor:close'
+      }, ALLOWED_ORIGIN)
+
+      iframeContainer.classList.remove('visible')
+      editorOpen = false
+      openBtn.disabled = false
+      openCropBtn.disabled = false
+      closeBtn.disabled = true
+    }
+
+    // Handle complete results
+    function handleComplete(payload) {
+      log('Displaying results...')
+
+      resultsContent.innerHTML = ''
+      resultsEl.classList.add('visible')
+
+      // Template data
+      const templateItem = document.createElement('div')
+      templateItem.className = 'result-item'
+      templateItem.innerHTML = `
+        <h3>Template Data</h3>
+        <pre>${JSON.stringify(payload.template, null, 2).slice(0, 500)}...</pre>
+      `
+      resultsContent.appendChild(templateItem)
+
+      // Metadata
+      const metaItem = document.createElement('div')
+      metaItem.className = 'result-item'
+      metaItem.innerHTML = `
+        <h3>Metadata</h3>
+        <pre>${JSON.stringify(payload.metadata, null, 2)}</pre>
+      `
+      resultsContent.appendChild(metaItem)
+
+      // PNG Export
+      if (payload.exports.png) {
+        const pngItem = document.createElement('div')
+        pngItem.className = 'result-item'
+        pngItem.innerHTML = `
+          <h3>PNG Export</h3>
+          <img src="${payload.exports.png}" alt="PNG Export">
+          <p style="margin-top: 10px; font-size: 12px; color: #6b7280;">
+            Data URL length: ${payload.exports.png.length} characters
+          </p>
+        `
+        resultsContent.appendChild(pngItem)
+      }
+
+      // Thumbnail
+      if (payload.exports.thumbnail) {
+        const thumbItem = document.createElement('div')
+        thumbItem.className = 'result-item'
+        thumbItem.innerHTML = `
+          <h3>Thumbnail</h3>
+          <img src="${payload.exports.thumbnail}" alt="Thumbnail">
+        `
+        resultsContent.appendChild(thumbItem)
+      }
+
+      // SVG Export
+      if (payload.exports.svg) {
+        const svgItem = document.createElement('div')
+        svgItem.className = 'result-item'
+        svgItem.innerHTML = `
+          <h3>SVG Export</h3>
+          <pre>${payload.exports.svg.slice(0, 500)}...</pre>
+          <p style="margin-top: 10px; font-size: 12px; color: #6b7280;">
+            SVG length: ${payload.exports.svg.length} characters
+          </p>
+        `
+        resultsContent.appendChild(svgItem)
+      }
+
+      log('Results displayed!', 'success')
+    }
+
+    // Clear results
+    function clearResults() {
+      resultsEl.classList.remove('visible')
+      resultsContent.innerHTML = ''
+      log('Results cleared')
+    }
+
+    // Button handlers
+    openBtn.addEventListener('click', () => openEditor('full'))
+    openCropBtn.addEventListener('click', () => openEditor('crop'))
+    closeBtn.addEventListener('click', closeEditor)
+    clearBtn.addEventListener('click', clearResults)
+
+    log('Test page ready. Click "Open Editor" to begin.')
+  </script>
+</body>
+</html>

@@ -1,19 +1,41 @@
-import React, { useRef, useState, useCallback } from 'react'
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react'
 import { useGesture } from '@use-gesture/react'
 import { Flex } from 'antd'
 import { SvgStage } from '../editor/svg/SvgStage'
 import { SvgStageV2 } from '../editor/svg-v2/SvgStageV2'
 import { SearchOutlined, ZoomInOutlined, ZoomOutOutlined, BorderOutlined, PlusOutlined } from '@ant-design/icons'
+import { FilePlus } from 'lucide-react'
 import type { Template } from '../schema/types'
 import type { SmartSnapOptions } from '../editor/utils/smartSnapping'
 import { LayerActionsChipOverlay } from './LayerActionsChipOverlay'
 import { PageControls } from './PageControls'
-import { applyLayoutForSize } from '../layout/layoutEngine'
+import { CustomPageSizeModal } from './CustomPageSizeModal'
+import { AddPageDropdown } from './AddPageDropdown'
+import { AddPageModal } from './AddPageModal'
 import { useEditorStore } from '../state/editorStore'
 import { GradientOverlay } from './color/GradientOverlay'
+import type { Page } from '../schema/types'
+import { getNormalizedDimensions } from '../editor/utils/normalization'
+import { getUiScale } from '../utils/uiScale'
 
 // Feature flag for V2 canvas
 const USE_V2_CANVAS = import.meta.env.VITE_USE_V2_CANVAS === 'true'
+
+/**
+ * Get pixel dimensions for a page based on its preferred ratio
+ * Falls back to template's first ratio if page has no preference
+ */
+function getPageDimensions(page: Page, template: Template): { id: string; w: number; h: number } {
+  const frameRatios = page.frames ? Object.keys(page.frames) : []
+  const preferredRatio = page.preferredRatio || frameRatios[0] || template.canvas?.ratios?.[0] || '1080x1080'
+  const normalized = getNormalizedDimensions(preferredRatio)
+
+  return {
+    id: preferredRatio,
+    w: normalized.w,
+    h: normalized.h
+  }
+}
 
 interface CanvasStageProps {
   template: Template | null
@@ -59,9 +81,13 @@ export function CanvasStage({
 }: CanvasStageInternalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRefs = useRef<{ [pageId: string]: SVGSVGElement | null }>({})
+  const pageRefs = useRef<{ [pageId: string]: HTMLDivElement | null }>({})
+  const prevPageCountRef = useRef<number>(0)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isPanEnabled, setIsPanEnabled] = useState(false) // Locked by default
   const [isZooming, setIsZooming] = useState(false) // Track if actively using zoom slider
+  const [customSizeModalOpen, setCustomSizeModalOpen] = useState(false)
+  const [addPageModalOpen, setAddPageModalOpen] = useState(false)
 
   // Get page actions from store
   const currentPageId = useEditorStore(state => state.currentPageId)
@@ -104,13 +130,29 @@ export function CanvasStage({
   )
 
   // Calculate scaled content dimensions to prevent excess scroll space
-  const pageControlsHeight = 80 // Approximate height of page controls
-  const singlePageHeight = height + pageControlsHeight
-  const gapHeight = 60 // marginBottom between pages
-  const numPages = template?.pages.length || 1
-  const totalUnscaledHeight = (singlePageHeight * numPages) + (gapHeight * (numPages - 1))
+  const pageControlsHeight = 100 // Approximate height of page controls (increased for larger icons)
+  const gapHeight = 120 // marginBottom between pages (increased 50% from 80px for better separation)
+
+  const pageMetrics = useMemo(() => {
+    if (!template) return null
+    return template.pages.map(page => ({
+      page,
+      dimensions: getPageDimensions(page, template)
+    }))
+  }, [template])
+
+  const maxPageWidth = pageMetrics && pageMetrics.length > 0
+    ? Math.max(...pageMetrics.map(metric => metric.dimensions.w))
+    : width
+
+  const totalUnscaledHeight = pageMetrics && pageMetrics.length > 0
+    ? pageMetrics.reduce((sum, metric, index) => (
+        sum + metric.dimensions.h + pageControlsHeight + (index < pageMetrics.length - 1 ? gapHeight : 0)
+      ), 0)
+    : height + pageControlsHeight
+
   const scaledHeight = totalUnscaledHeight * (zoom / 100)
-  const scaledWidth = width * (zoom / 100)
+  const scaledWidth = maxPageWidth * (zoom / 100)
 
   const handleContainerMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
@@ -143,6 +185,50 @@ export function CanvasStage({
     onSelectionChange([])
     setCanvasSelected(false)
   }, [onSelectionChange, setHoveredSlot, setCanvasSelected])
+
+  // Function to scroll to a specific page
+  const scrollToPage = useCallback((pageId: string) => {
+    const pageElement = pageRefs.current[pageId]
+    const container = containerRef.current
+
+    if (!pageElement || !container) return
+
+    // Calculate the scroll position to center the page
+    const containerHeight = container.clientHeight
+    const pageTop = pageElement.offsetTop
+    const pageHeight = pageElement.clientHeight
+
+    // Scroll to center the page in the viewport
+    const scrollTarget = pageTop - (containerHeight - pageHeight) / 2
+
+    container.scrollTo({
+      top: Math.max(0, scrollTarget),
+      behavior: 'smooth'
+    })
+  }, [])
+
+  // Auto-scroll to newly added pages
+  useEffect(() => {
+    if (!template) return
+
+    const currentPageCount = template.pages.length
+    const prevPageCount = prevPageCountRef.current
+
+    // If a page was added (not initial render)
+    if (prevPageCount > 0 && currentPageCount > prevPageCount) {
+      // Scroll to the last (newly added) page
+      const lastPage = template.pages[template.pages.length - 1]
+      if (lastPage) {
+        // Small delay to ensure DOM has updated
+        setTimeout(() => {
+          scrollToPage(lastPage.id)
+          setCurrentPage(lastPage.id)
+        }, 100)
+      }
+    }
+
+    prevPageCountRef.current = currentPageCount
+  }, [template, scrollToPage, setCurrentPage])
 
   return (
     <div
@@ -180,7 +266,7 @@ export function CanvasStage({
           cursor: isPanEnabled ? 'grab' : 'default'
         }}
       >
-        <Flex vertical align="center" style={{ padding: '110px 0 24px 0', minHeight: 0 }}>
+        <Flex vertical align="center" style={{ padding: '80px 0 24px 0', minHeight: 0 }}>
           {/* Scaled container wrapper - prevents excess scroll space */}
           <div style={{
             height: `${scaledHeight}px`,
@@ -200,14 +286,21 @@ export function CanvasStage({
               }}
             >
             {/* Multi-Page Canvas - Each page in unified wrapper */}
-            {template && template.pages.map((page, pageIndex) => (
+            {template && pageMetrics?.map(({ page, dimensions: pageDimensions }, pageIndex) => {
+              const safeInset = Math.min(pageDimensions.w, pageDimensions.h) * 0.05
+
+              return (
               <div
                 key={page.id}
+                ref={(el) => { pageRefs.current[page.id] = el }}
                 className="page-wrapper"
                 style={{
                   position: 'relative',
-                  width: `${width}px`,
-                  marginBottom: pageIndex < template.pages.length - 1 ? '60px' : '0'
+                  width: `${pageDimensions.w}px`,
+                  marginLeft: 'auto',
+                  marginRight: 'auto',
+                  marginBottom: pageIndex < template.pages.length - 1 ? '120px' : '0',  // Increased 50% from 80px
+                  overflow: 'visible'
                 }}
               >
                 {/* Page Controls - Locked directly above canvas */}
@@ -215,22 +308,28 @@ export function CanvasStage({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: template.pages.length > 1 ? 'space-between' : 'flex-end',
-                  paddingLeft: '16px',
-                  paddingRight: '16px',
-                  paddingTop: '12px',
-                  paddingBottom: '8px'
+                  paddingLeft: '18px',
+                  paddingRight: '18px',
+                  paddingTop: '16px',
+                  paddingBottom: '12px',
+                  maxWidth: '100%',
+                  overflow: 'visible',
+                  position: 'relative',
+                  zIndex: 3
                 }}>
                   <PageControls
                     page={page}
                     pageIndex={pageIndex}
                     totalPages={template.pages.length}
                     showName={template.pages.length > 1}
+                    zoom={zoom}
                     onRename={(name) => renamePage(page.id, name)}
                     onMoveUp={() => reorderPage(page.id, 'up')}
                     onMoveDown={() => reorderPage(page.id, 'down')}
                     onDuplicate={() => duplicatePage(page.id)}
                     onDelete={() => deletePage(page.id)}
-                    onAddPage={() => addPage()}
+                    onAddPage={(size) => addPage(size)}
+                    onCustomPageSize={() => setCustomSizeModalOpen(true)}
                   />
                 </div>
 
@@ -245,11 +344,15 @@ export function CanvasStage({
                   style={{
                     background: '#ffffff',
                     boxShadow: currentPageId === page.id
-                      ? '0 4px 6px -1px rgb(59 130 246 / 0.3), 0 2px 4px -2px rgb(59 130 246 / 0.2)'
-                      : '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+                      ? '0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08)'
+                      : '0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06)',
                     transition: 'all 0.15s ease-out',
                     position: 'relative',
-                    overflow: 'visible'
+                    overflow: 'hidden',
+                    width: `${pageDimensions.w}px`,
+                    height: `${pageDimensions.h}px`,
+                    borderRadius: '0',  // Removed rounded corners for perfectly square canvas
+                    zIndex: 1
                   }}
                 >
                   {/* SVG Stage - Feature-flagged V1/V2 rendering */}
@@ -258,9 +361,9 @@ export function CanvasStage({
                       ref={(el) => { svgRefs.current[page.id] = el }}
                       template={template}
                       page={page}
-                      width={width}
-                      height={height}
-                      ratioId={canvasSize.id}
+                      width={pageDimensions.w}
+                      height={pageDimensions.h}
+                      ratioId={pageDimensions.id}
                       selectedSlots={currentPageId === page.id ? selectedSlots : []}
                       onSelectionChange={onSelectionChange}
                       onSlotModified={onSlotModified}
@@ -277,9 +380,9 @@ export function CanvasStage({
                       ref={(el) => { svgRefs.current[page.id] = el }}
                       template={template}
                       page={page}
-                      width={width}
-                      height={height}
-                      ratioId={canvasSize.id}
+                      width={pageDimensions.w}
+                      height={pageDimensions.h}
+                      ratioId={pageDimensions.id}
                       selectedSlots={currentPageId === page.id ? selectedSlots : []}
                       onSelectionChange={onSelectionChange}
                       onSlotModified={onSlotModified}
@@ -293,7 +396,7 @@ export function CanvasStage({
                     />
                   )}
 
-                  {/* Safe Area Guides */}
+                  {/* Safe Area Guides - Uses page-specific dimensions */}
                   <svg
                     style={{
                       position: 'absolute',
@@ -303,13 +406,13 @@ export function CanvasStage({
                       height: '100%',
                       pointerEvents: 'none'
                     }}
-                    viewBox={`${template.canvas.baseViewBox[0]} ${template.canvas.baseViewBox[1]} ${template.canvas.baseViewBox[2]} ${template.canvas.baseViewBox[3]}`}
+                    viewBox={`0 0 ${pageDimensions.w} ${pageDimensions.h}`}
                   >
                     <rect
-                      x={template.canvas.baseViewBox[0] + 32}
-                      y={template.canvas.baseViewBox[1] + 32}
-                      width={template.canvas.baseViewBox[2] - 64}
-                      height={template.canvas.baseViewBox[3] - 64}
+                      x={safeInset}
+                      y={safeInset}
+                      width={Math.max(pageDimensions.w - safeInset * 2, 0)}
+                      height={Math.max(pageDimensions.h - safeInset * 2, 0)}
                       fill="none"
                       stroke="#ef4444"
                       strokeWidth="2"
@@ -329,7 +432,7 @@ export function CanvasStage({
                         height: '100%',
                         pointerEvents: 'none'
                       }}
-                      viewBox={`${template.canvas.baseViewBox[0]} ${template.canvas.baseViewBox[1]} ${template.canvas.baseViewBox[2]} ${template.canvas.baseViewBox[3]}`}
+                      viewBox={`0 0 ${pageDimensions.w} ${pageDimensions.h}`}
                     >
                       <g style={{ pointerEvents: 'all' }}>
                         <GradientOverlay />
@@ -338,52 +441,57 @@ export function CanvasStage({
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
 
-            {/* Add Page Button - Canva-style, at bottom of all pages */}
-            {template && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                paddingTop: '20px',
-                paddingBottom: '20px',
-                marginTop: '16px',
-                animation: 'fadeIn 0.4s ease-out'
-              }}>
-                <button
-                  onClick={() => addPage()}
-                  type="button"
-                  style={{
-                    border: '1px solid #d1d5db',
-                    background: '#f9fafb',
-                    cursor: 'pointer',
-                    padding: '12px 24px',
-                    borderRadius: '8px',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    color: '#4b5563',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    transition: 'all 0.2s',
-                    height: 'auto'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f3f4f6'
-                    e.currentTarget.style.borderColor = '#9ca3af'
-                    e.currentTarget.style.color = '#374151'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#f9fafb'
-                    e.currentTarget.style.borderColor = '#d1d5db'
-                    e.currentTarget.style.color = '#4b5563'
-                  }}
-                >
-                  <PlusOutlined style={{ fontSize: '16px', strokeWidth: '2.5' }} />
-                  <span>Add Page</span>
-                </button>
-              </div>
-            )}
+            {/* Add Page Button - Opens modal with size options */}
+            {template && (() => {
+              const buttonScale = getUiScale(zoom, { min: 1, max: 1.6 })
+
+              return (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  paddingTop: '40px',
+                  paddingBottom: template.pages.length > 1 ? '80px' : '40px',  // Dynamic margin for multi-page
+                  marginTop: '24px',
+                  animation: 'fadeIn 0.4s ease-out',
+                  position: 'relative'
+                }}>
+                  <button
+                    onClick={() => setAddPageModalOpen(true)}
+                    style={{
+                      border: '2px solid #3b82f6',
+                      background: '#ffffff',
+                      color: '#3b82f6',
+                      padding: `${Math.round(12 * buttonScale)}px ${Math.round(28 * buttonScale)}px`,
+                      fontSize: `${Math.round(16 * buttonScale)}px`,
+                      fontWeight: '700',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: `${Math.round(10 * buttonScale)}px`,
+                      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.15)',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#3b82f6'
+                      e.currentTarget.style.color = '#ffffff'
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.25)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#ffffff'
+                      e.currentTarget.style.color = '#3b82f6'
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)'
+                    }}
+                  >
+                    <FilePlus size={Math.round(22 * buttonScale)} />
+                    <span>Add Page</span>
+                  </button>
+                </div>
+              )
+            })()}
             </div>
           </div>
         </Flex>
@@ -536,6 +644,30 @@ export function CanvasStage({
           />
         )
       })()}
+
+      {/* Custom Page Size Modal */}
+      <CustomPageSizeModal
+        isOpen={customSizeModalOpen}
+        onClose={() => setCustomSizeModalOpen(false)}
+        onAddPage={(size) => {
+          addPage(size)
+          setCustomSizeModalOpen(false)
+        }}
+      />
+
+      {/* Add Page Modal */}
+      <AddPageModal
+        isOpen={addPageModalOpen}
+        onClose={() => setAddPageModalOpen(false)}
+        onAddPage={(size) => {
+          addPage(size)
+          setAddPageModalOpen(false)
+        }}
+        onCustomSize={() => {
+          setCustomSizeModalOpen(true)
+          setAddPageModalOpen(false)
+        }}
+      />
     </div>
   )
 }

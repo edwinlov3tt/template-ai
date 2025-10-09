@@ -388,8 +388,11 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
     return null
   }
 
-  // Get viewBox from template
-  const [vbX, vbY, vbWidth, vbHeight] = template.canvas.baseViewBox
+  // Derive a page-specific viewBox based on provided dimensions
+  const vbX = 0
+  const vbY = 0
+  const vbWidth = width
+  const vbHeight = height
 
   // Sort slots by z-index (lower z renders first, higher z on top)
   const sortedSlots = [...page.slots].sort((a, b) => (a.z || 0) - (b.z || 0))
@@ -489,7 +492,7 @@ export const SvgStageV2 = React.forwardRef<SVGSVGElement, SvgStageV2Props>(({
           snapToGrid={snapToGrid}
           snapGridSize={snapGridSize}
           smartSnapOptions={smartSnapOptions}
-          viewBox={template.canvas.baseViewBox}
+          viewBox={[vbX, vbY, vbWidth, vbHeight]}
           pendingAutoDrag={pendingAutoDrag}
           onPendingAutoDragConsumed={() => setPendingAutoDrag(null)}
         />

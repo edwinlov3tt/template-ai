@@ -1,18 +1,22 @@
 import React, { useState } from 'react'
-import { ChevronUp, ChevronDown, Copy, Trash2, FilePlus } from 'lucide-react'
+import { ChevronUp, ChevronDown, Copy, Trash2 } from 'lucide-react'
 import type { Page } from '../schema/types'
+import { AddPageDropdown } from './AddPageDropdown'
+import { getUiScale } from '../utils/uiScale'
 
 interface PageControlsProps {
   page: Page
   pageIndex: number
   totalPages: number
   showName: boolean  // Only show when 2+ pages
+  zoom: number  // Zoom percentage for responsive sizing
   onRename: (name: string) => void
   onMoveUp: () => void
   onMoveDown: () => void
   onDuplicate: () => void
   onDelete: () => void
-  onAddPage: () => void
+  onAddPage: (size: { id: string; w: number; h: number }) => void
+  onCustomPageSize: () => void
 }
 
 export function PageControls({
@@ -20,12 +24,14 @@ export function PageControls({
   pageIndex,
   totalPages,
   showName,
+  zoom,
   onRename,
   onMoveUp,
   onMoveDown,
   onDuplicate,
   onDelete,
-  onAddPage
+  onAddPage,
+  onCustomPageSize
 }: PageControlsProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(page.name)
@@ -33,6 +39,11 @@ export function PageControls({
   const canMoveUp = pageIndex > 0
   const canMoveDown = pageIndex < totalPages - 1
   const canDelete = totalPages > 1
+
+  // Use moderate scaling to keep icons visible but not huge
+  const controlScale = getUiScale(zoom, { min: 1, max: 1.6 })
+  const iconSize = Math.round(28 * controlScale)
+  const buttonPadding = `${Math.round(8 * controlScale)}px`
 
   function handleSave() {
     if (editValue.trim()) {
@@ -56,7 +67,7 @@ export function PageControls({
     <>
       {/* Page Name - Left side */}
       {showName && (
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {isEditing ? (
             <input
               type="text"
@@ -67,26 +78,26 @@ export function PageControls({
               autoFocus
               style={{
                 border: '1px solid #3b82f6',
-                borderRadius: '4px',
-                padding: '4px 8px',
-                fontSize: '16px',
-                fontWeight: '500',
+                borderRadius: '6px',
+                padding: `${Math.round(6 * controlScale)}px ${Math.round(10 * controlScale)}px`,
+                fontSize: `${Math.round(18 * controlScale)}px`,
+                fontWeight: '600',
                 fontFamily: 'Inter, sans-serif',
                 outline: 'none',
-                width: '140px',
-                color: '#374151'
+                width: `${Math.round(180 * controlScale)}px`,
+                color: '#1f2937'
               }}
             />
           ) : (
             <span
               onClick={() => setIsEditing(true)}
               style={{
-                fontSize: '20px',
+                fontSize: `${Math.round(26 * controlScale)}px`,
                 fontWeight: '700',
-                color: '#374151',
+                color: '#1f2937',
                 cursor: 'pointer',
-                padding: '4px 8px',
-                borderRadius: '4px',
+                padding: `${Math.round(6 * controlScale)}px ${Math.round(10 * controlScale)}px`,
+                borderRadius: '6px',
                 transition: 'background 0.15s'
               }}
               onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
@@ -102,7 +113,7 @@ export function PageControls({
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '12px'
+        gap: `${Math.round(16 * controlScale)}px`
       }}>
         {/* Move Up */}
         <button
@@ -117,10 +128,10 @@ export function PageControls({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '4px'
+            padding: buttonPadding
           }}
         >
-          <ChevronUp size={28} color="#6b7280" strokeWidth={2} />
+          <ChevronUp size={iconSize} color="#374151" strokeWidth={2.2} />
         </button>
 
         {/* Move Down */}
@@ -136,10 +147,10 @@ export function PageControls({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '4px'
+            padding: buttonPadding
           }}
         >
-          <ChevronDown size={28} color="#6b7280" strokeWidth={2} />
+          <ChevronDown size={iconSize} color="#374151" strokeWidth={2.2} />
         </button>
 
         {/* Duplicate */}
@@ -153,10 +164,10 @@ export function PageControls({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '4px'
+            padding: buttonPadding
           }}
         >
-          <Copy size={28} color="#6b7280" strokeWidth={2} />
+          <Copy size={iconSize} color="#374151" strokeWidth={2.2} />
         </button>
 
         {/* Delete */}
@@ -168,32 +179,22 @@ export function PageControls({
             border: 'none',
             background: 'transparent',
             cursor: canDelete ? 'pointer' : 'not-allowed',
-            opacity: canDelete ? 1 : 0.3,
+            opacity: canDelete ? 1 : 0.35,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '4px'
+            padding: buttonPadding
           }}
         >
-          <Trash2 size={28} color={canDelete ? '#6b7280' : '#6b7280'} strokeWidth={2} />
+          <Trash2 size={iconSize} color="#ef4444" strokeWidth={2.2} />
         </button>
 
-        {/* Add Page */}
-        <button
-          onClick={onAddPage}
-          title="Add page"
-          style={{
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '4px'
-          }}
-        >
-          <FilePlus size={28} color="#6b7280" strokeWidth={2} />
-        </button>
+        {/* Add Page Dropdown */}
+        <AddPageDropdown
+          zoom={zoom}
+          onAddPage={onAddPage}
+          onCustomSize={onCustomPageSize}
+        />
       </div>
     </>
   )

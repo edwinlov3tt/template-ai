@@ -6,6 +6,49 @@ import { migrateTemplate } from '../utils/templateMigration'
 import type { Paint, LinearGradientPaint, RadialGradientPaint, GradientStop } from '../editor/color/types'
 import { sortStops, interpolateStopColor } from '../editor/color/gradientMath'
 import { clampToSrgb } from '../editor/color/colorMath'
+import { getExportDimensions, getNormalizedDimensions, getNormalizationScale, NORMALIZATION_METADATA } from '../editor/utils/normalization'
+import { getDefaultSlotFrameByName } from '../editor/utils/slotDefaults'
+
+function normalizePage(page: Page): Page {
+  if (page.coordinateSystem === 'normalized') {
+    return page
+  }
+
+  const normalizedFrames: Page['frames'] = {}
+
+  Object.entries(page.frames || {}).forEach(([ratioId, frames]) => {
+    const { scaleX, scaleY } = getNormalizationScale(ratioId)
+    normalizedFrames[ratioId] = Object.fromEntries(
+      Object.entries(frames).map(([slotName, frame]) => [
+        slotName,
+        {
+          ...frame,
+          x: frame.x * scaleX,
+          y: frame.y * scaleY,
+          width: frame.width * scaleX,
+          height: frame.height * scaleY
+        }
+      ])
+    )
+  })
+
+  const ratioKeys = Object.keys(page.frames || {})
+
+  return {
+    ...page,
+    frames: normalizedFrames,
+    coordinateSystem: 'normalized',
+    normalizedHeight: NORMALIZATION_METADATA.longEdge,
+    preferredRatio: page.preferredRatio || ratioKeys[0]
+  }
+}
+
+function normalizeTemplate(template: Template): Template {
+  return {
+    ...template,
+    pages: template.pages.map(normalizePage)
+  }
+}
 
 export interface EditorState {
   // Template & content
@@ -24,7 +67,7 @@ export interface EditorState {
   // Page management
   currentPageId: string | null
   setCurrentPage: (pageId: string) => void
-  addPage: () => void
+  addPage: (size?: { id: string; w: number; h: number }) => void
   deletePage: (pageId: string) => void
   duplicatePage: (pageId: string) => void
   renamePage: (pageId: string, name: string) => void
@@ -126,15 +169,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // Template actions
   setTemplate: (template) => {
     if (template) {
-      // Migrate template to ensure pages array exists
       const migratedTemplate = migrateTemplate(template)
+      const normalizedTemplate = normalizeTemplate(migratedTemplate)
+
+      const firstPage = normalizedTemplate.pages[0] || null
+      const preferredRatio = firstPage?.preferredRatio || Object.keys(firstPage?.frames || {})[0] || '1:1'
+      const exportSize = getExportDimensions(preferredRatio)
 
       set({
-        template: migratedTemplate,
-        history: initializeHistory(migratedTemplate),
-        currentPageId: migratedTemplate.pages[0]?.id || null,
+        template: normalizedTemplate,
+        history: initializeHistory(normalizedTemplate),
+        currentPageId: firstPage?.id || null,
         selectedSlots: [],
-        canvasSelected: false
+        canvasSelected: false,
+        canvasSize: { id: preferredRatio, ...exportSize }
       })
     } else {
       set({
@@ -142,7 +190,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         history: null,
         currentPageId: null,
         selectedSlots: [],
-        canvasSelected: false
+        canvasSelected: false,
+        canvasSize: { id: '1:1', w: 1080, h: 1080 }
       })
     }
   },
@@ -156,7 +205,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const { history: newHistory, template: prevTemplate } = undoHistory(history)
     if (prevTemplate) {
-      set({ history: newHistory, template: prevTemplate })
+      set({ history: newHistory, template: normalizeTemplate(prevTemplate) })
     }
   },
 
@@ -166,7 +215,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const { history: newHistory, template: nextTemplate } = redoHistory(history)
     if (nextTemplate) {
-      set({ history: newHistory, template: nextTemplate })
+      set({ history: newHistory, template: normalizeTemplate(nextTemplate) })
     }
   },
 
@@ -635,16 +684,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   // Page management actions
   setCurrentPage: (pageId) => {
-    const { currentPageId } = get()
+    const { currentPageId, template } = get()
+    if (!template) return
     if (currentPageId === pageId) {
-      return // Don't clear selection if already on this page
+      return
     }
-    set({ currentPageId: pageId, selectedSlots: [], canvasSelected: false })
+
+    const page = template.pages.find(p => p.id === pageId)
+    if (!page) {
+      set({ currentPageId: pageId, selectedSlots: [], canvasSelected: false })
+      return
+    }
+
+    const normalizedPage = normalizePage(page)
+    const preferredRatio = normalizedPage.preferredRatio || Object.keys(normalizedPage.frames || {})[0] || '1:1'
+    const exportSize = getExportDimensions(preferredRatio)
+
+    const updatedTemplate = page.coordinateSystem === 'normalized'
+      ? template
+      : {
+          ...template,
+          pages: template.pages.map(p => (p.id === pageId ? normalizedPage : p))
+        }
+
+    set({
+      template: updatedTemplate,
+      currentPageId: pageId,
+      selectedSlots: [],
+      canvasSelected: false,
+      canvasSize: { id: preferredRatio, ...exportSize }
+    })
   },
 
-  addPage: () => {
+  addPage: (size?) => {
     const { template, history } = get()
     if (!template) return
+
+    // Use provided size or default to first ratio
+    const pageSize = size || (
+      template.canvas?.ratios?.[0]
+        ? (() => {
+            const ratioId = template.canvas.ratios[0]
+            const exportSize = getExportDimensions(ratioId)
+            return { id: ratioId, ...exportSize }
+          })()
+        : { id: '1:1', ...getExportDimensions('1:1') }
+    )
 
     // Find the next available page number (reuse deleted numbers)
     const existingPageNumbers = template.pages
@@ -662,25 +747,62 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const newPageName = `page-${pageNumber}`
     const newPageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 
+    // Check if this ratio already exists in template
+    const ratioExists = template.canvas?.ratios?.includes(pageSize.id)
+
+    // Add ratio to template if it doesn't exist
+    const updatedRatios = ratioExists
+      ? (template.canvas?.ratios || [])
+      : [...(template.canvas?.ratios || []), pageSize.id]
+
+    // Create frames for the new ratio for all existing pages (if new ratio)
+    const updatedPages = template.pages.map(page => {
+      if (ratioExists || !page.frames) {
+        return page
+      }
+      // Add empty frames for this new ratio
+      return {
+        ...page,
+        frames: {
+          ...page.frames,
+          [pageSize.id]: {}  // Empty frames for new ratio
+        }
+      }
+    })
+
+    // Create new page with frames for the selected size
     const newPage: Page = {
       id: newPageId,
       name: newPageName,
       slots: [],
-      frames: {},
-      backgroundColor: '#ffffff'
+      frames: {
+        [pageSize.id]: {}  // Start with empty frames for this ratio
+      },
+      backgroundColor: '#ffffff',
+      preferredRatio: pageSize.id,
+      coordinateSystem: 'normalized',
+      normalizedHeight: NORMALIZATION_METADATA.longEdge
     }
 
-    const newTemplate: Template = {
+    const newTemplate: Template = normalizeTemplate({
       ...template,
-      pages: [...template.pages, newPage]
-    }
+      canvas: {
+        ...template.canvas,
+        baseViewBox: template.canvas?.baseViewBox || [0, 0, pageSize.w, pageSize.h],
+        ratios: updatedRatios
+      },
+      pages: [...updatedPages, newPage]
+    })
+
+    const exportSizeForNewPage = getExportDimensions(pageSize.id)
 
     set({
       template: newTemplate,
       currentPageId: newPageId,
       selectedSlots: [],
       canvasSelected: false,
-      history: history ? addVersion(history, newTemplate, `Added ${newPageName}`) : history
+      canvasSize: { id: pageSize.id, ...exportSizeForNewPage },
+      history: history ? addVersion(history, newTemplate, `Added ${newPageName} (${exportSizeForNewPage.w}×${exportSizeForNewPage.h})`) : history
     })
   },
 
@@ -704,10 +826,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       newCurrentPageId = newPages[Math.max(0, pageIndex - 1)]?.id || null
     }
 
+    let updatedCanvasSize = { id: '1:1', ...getExportDimensions('1:1') }
+    if (newCurrentPageId) {
+      const nextPage = newPages.find(p => p.id === newCurrentPageId)
+      if (nextPage) {
+        const nextRatio = nextPage.preferredRatio || Object.keys(nextPage.frames || {})[0] || '1:1'
+        updatedCanvasSize = { id: nextRatio, ...getExportDimensions(nextRatio) }
+      }
+    }
+
     set({
       template: newTemplate,
       currentPageId: newCurrentPageId,
       selectedSlots: [],
+      canvasSize: updatedCanvasSize,
       history: history ? addVersion(history, newTemplate, `Deleted ${template.pages[pageIndex].name}`) : history
     })
   },
@@ -751,7 +883,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       id: newPageId,
       name: newPageName,
       slots: copiedSlots,
-      frames: copiedFrames
+      frames: copiedFrames,
+      backgroundColor: originalPage.backgroundColor,
+      preferredRatio: originalPage.preferredRatio,
+      coordinateSystem: originalPage.coordinateSystem || 'normalized',
+      normalizedHeight: originalPage.normalizedHeight || NORMALIZATION_METADATA.longEdge
     }
 
     // Insert duplicated page after original
@@ -763,10 +899,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       pages: newPages
     }
 
+    const duplicatedRatio = newPage.preferredRatio || Object.keys(newPage.frames || {})[0] || '1:1'
+    const duplicatedExportSize = getExportDimensions(duplicatedRatio)
+
     set({
       template: newTemplate,
       currentPageId: newPageId,
       selectedSlots: [],
+      canvasSize: { id: duplicatedRatio, ...duplicatedExportSize },
       history: history ? addVersion(history, newTemplate, `Duplicated ${originalPage.name}`) : history
     })
   },
@@ -1056,8 +1196,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       slotName = `${slotType}-${counter}`
     }
 
-    // Get viewBox for positioning
-    const [vbX, vbY, vbWidth, vbHeight] = template.canvas.baseViewBox
+    // Determine page dimensions based on preferred ratio or current canvas size
+    const pageRatioId = currentPage.preferredRatio || canvasSize.id
+    const pageDimensions = getNormalizedDimensions(pageRatioId)
+    const vbX = 0
+    const vbY = 0
+    const vbWidth = pageDimensions.w
+    const vbHeight = pageDimensions.h
 
     // Default properties based on slot type
     const shapeId = options?.shapeId ?? 'rectangle'
@@ -1139,28 +1284,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }
 
-    // Calculate center position with default size
-    const defaultSize = slotType === 'text'
-      ? textStyle === 'heading'
-        ? { w: vbWidth * 0.7, h: 80 }
-        : textStyle === 'subheading'
-        ? { w: vbWidth * 0.6, h: 60 }
-        : { w: vbWidth * 0.5, h: 120 }  // body text, taller for multiple lines
-      : slotType === 'image'
-      ? { w: vbWidth * 0.4, h: vbHeight * 0.4 }
-      : slotType === 'button'
-      ? { w: 150, h: 50 }
-      : {
-          w: shapeDefinition?.defaultSize.width ?? 120,
-          h: shapeDefinition?.defaultSize.height ?? 120
-        }
-
-    const defaultFrame = options?.frame ?? {
-      x: vbX + (vbWidth - defaultSize.w) / 2,
-      y: vbY + (vbHeight - defaultSize.h) / 2,
-      width: defaultSize.w,
-      height: defaultSize.h
-    }
+    // Calculate default frame using standard reference system
+    // This ensures consistent sizing across different canvas sizes
+    const defaultFrame = options?.frame ?? getDefaultSlotFrameByName(
+      slotName,
+      slotType,
+      vbWidth,
+      vbHeight
+    )
 
     // Find highest z-index in current page and add 1
     const maxZ = currentPage.slots.reduce((max, slot) => Math.max(max, slot.z), 0)
@@ -1207,12 +1338,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     const firstPageId = `page_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 
-    const newTemplate: Template = {
+    const newTemplate: Template = normalizeTemplate({
       id: 'template-' + Date.now(),
       version: 1,
       canvas: {
         baseViewBox: [0, 0, canvasSize.w, canvasSize.h],
-        ratios: ['1:1', '4:5', '9:16', '16:9', '300x250', '728x90']
+        ratios: ['1:1', '4:5', '9:16', '1080x1920', '300x250', '728x90']
       },
       tokens: {
         palette: {
@@ -1231,8 +1362,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         id: firstPageId,
         name: 'page-1',
         slots: [],
-        frames: {},
-        backgroundColor: '#ffffff'
+        frames: {
+          [canvasSize.id]: {}
+        },
+        backgroundColor: '#ffffff',
+        preferredRatio: canvasSize.id,
+        coordinateSystem: 'normalized',
+        normalizedHeight: NORMALIZATION_METADATA.longEdge
       }],
       constraints: {
         global: [],
@@ -1243,15 +1379,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         fallbacks: ['autoChip', 'invertText', 'increaseOverlay']
       },
       sample: {}
-    }
+    })
 
     set({
       template: newTemplate,
       currentPageId: firstPageId,
       history: initializeHistory(newTemplate),
       selectedSlots: [],
-      zoom: 55,
+      zoom: 35,  // Changed from 55 to 35 for better initial view
       canvasSelected: false
+      // Note: canvasSize already set by setCanvasSize() before this, don't override it
     })
   }
 }))

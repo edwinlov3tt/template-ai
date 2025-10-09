@@ -2,66 +2,122 @@ import React, { useState } from 'react'
 import type { Template } from '../schema/types'
 import { exportAndDownload } from '../export/pngExport'
 import { exportSVG, downloadSVG } from '../export/svgExport'
+import { getExportDimensions } from '../editor/utils/normalization'
 
 interface ExportModalProps {
   isOpen: boolean
   onClose: () => void
   template: Template | null
-  currentSize: { w: number; h: number }
+  currentSize: { id: string; w: number; h: number }
   currentPageId?: string | null
+  onCanvasSizeChange?: (size: { id: string; w: number; h: number }) => void
 }
 
-export function ExportModal({ isOpen, onClose, template, currentSize, currentPageId }: ExportModalProps) {
+export function ExportModal({ isOpen, onClose, template, currentSize, currentPageId, onCanvasSizeChange }: ExportModalProps) {
   const [format, setFormat] = useState<'png' | 'jpeg' | 'svg'>('png')
   const [quality, setQuality] = useState(100)
   const [scale, setScale] = useState(1)
   const [exporting, setExporting] = useState(false)
+  const [exportMode, setExportMode] = useState<'single' | 'batch'>('single')
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null)
 
   if (!isOpen || !template) return null
 
+  // Get available ratios from template
+  const availableRatios = template.canvas?.ratios || []
+  const hasMultipleRatios = availableRatios.length > 1
+
+  const exportSingleSize = async (size: { id: string; w: number; h: number }, filename?: string) => {
+    // Find the main canvas SVG element for the current page
+    const selector = currentPageId
+      ? `svg[data-canvas-svg="true"][data-page-id="${currentPageId}"]`
+      : 'svg[data-canvas-svg="true"]'
+
+    const svgElement = document.querySelector(selector) as SVGSVGElement
+    if (!svgElement) {
+      console.error('[ExportModal] No canvas SVG found. Available SVGs:',
+        Array.from(document.querySelectorAll('svg')).map(s => ({
+          viewBox: s.getAttribute('viewBox'),
+          dataAttrs: Array.from(s.attributes).filter(a => a.name.startsWith('data-'))
+        }))
+      )
+      throw new Error('No SVG canvas found')
+    }
+
+    // Get actual export pixel dimensions for this ratio
+    const exportDims = getExportDimensions(size.id)
+    const exportFilename = filename || `template-${exportDims.w}x${exportDims.h}`
+
+    console.log('[ExportModal] Exporting:', {
+      ratioId: size.id,
+      canvasDims: { w: size.w, h: size.h },
+      exportDims,
+      format
+    })
+
+    if (format === 'svg') {
+      const svgString = exportSVG(svgElement)
+      downloadSVG(svgString, `${exportFilename}.svg`)
+    } else {
+      // Export at actual pixel dimensions (pngExport handles the scaling from viewBox)
+      await exportAndDownload(
+        svgElement,
+        {
+          width: exportDims.w,
+          height: exportDims.h,
+          format,
+          quality: quality / 100,
+          multiplier: scale
+        },
+        `${exportFilename}.${format}`
+      )
+    }
+  }
+
   const handleExport = async () => {
     setExporting(true)
+    setExportProgress(null)
+
     try {
-      // Find the main canvas SVG element for the current page
-      // If there are multiple pages, select the active one by page ID
-      const selector = currentPageId
-        ? `svg[data-canvas-svg="true"][data-page-id="${currentPageId}"]`
-        : 'svg[data-canvas-svg="true"]'
-
-      const svgElement = document.querySelector(selector) as SVGSVGElement
-      if (!svgElement) {
-        console.error('[ExportModal] No canvas SVG found. Available SVGs:',
-          Array.from(document.querySelectorAll('svg')).map(s => ({
-            viewBox: s.getAttribute('viewBox'),
-            dataAttrs: Array.from(s.attributes).filter(a => a.name.startsWith('data-'))
-          }))
-        )
-        throw new Error('No SVG canvas found')
-      }
-
-      console.log('[ExportModal] Found SVG element:', svgElement)
-
-      if (format === 'svg') {
-        // SVG export
-        const svgString = exportSVG(svgElement)
-        const filename = `template-${currentSize.w}x${currentSize.h}.svg`
-        downloadSVG(svgString, filename)
+      if (exportMode === 'single') {
+        // Export current size only
+        await exportSingleSize(currentSize)
+        onClose()
       } else {
-        // PNG/JPEG export
-        await exportAndDownload(
-          svgElement,
-          {
-            width: currentSize.w,
-            height: currentSize.h,
-            format,
-            quality: quality / 100,
-            multiplier: scale
-          }
-        )
+        // Batch export all ratios
+        if (!onCanvasSizeChange) {
+          throw new Error('Batch export requires onCanvasSizeChange callback')
+        }
+
+        const originalSize = currentSize
+        const templateName = template.id || 'template'
+
+        for (let i = 0; i < availableRatios.length; i++) {
+          const ratioId = availableRatios[i]
+          setExportProgress({ current: i + 1, total: availableRatios.length })
+
+          // Convert ratio ID to dimensions
+          const size = getExportDimensions(ratioId)
+
+          // Switch canvas to this size
+          onCanvasSizeChange(size)
+
+          // Wait for React to render the new size
+          await new Promise(resolve => setTimeout(resolve, 300))
+
+          // Export this size
+          const filename = `${templateName}-${size.id}`
+          await exportSingleSize(size, filename)
+        }
+
+        // Restore original size
+        onCanvasSizeChange(originalSize)
+        setExportProgress(null)
+        onClose()
       }
-      onClose()
     } catch (error) {
       console.error('Export failed:', error)
+      setExportProgress(null)
 
       // Provide specific error messages
       let errorMessage = 'Export failed. Please try again.'
@@ -141,7 +197,34 @@ export function ExportModal({ isOpen, onClose, template, currentSize, currentPag
 
         {/* Content */}
         <div style={{ padding: '24px' }}>
-          {/* Current Size */}
+          {/* Export Mode (only show if multiple ratios available) */}
+          {hasMultipleRatios && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#374151',
+                marginBottom: '8px'
+              }}>
+                Export Mode
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <FormatButton
+                  active={exportMode === 'single'}
+                  onClick={() => setExportMode('single')}
+                  label="Current Size"
+                />
+                <FormatButton
+                  active={exportMode === 'batch'}
+                  onClick={() => setExportMode('batch')}
+                  label={`All Sizes (${availableRatios.length})`}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Current Size / Export Info */}
           <div style={{
             background: '#f9fafb',
             border: '1px solid #e5e7eb',
@@ -150,20 +233,40 @@ export function ExportModal({ isOpen, onClose, template, currentSize, currentPag
             marginBottom: '24px'
           }}>
             <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
-              Export Size
+              {exportMode === 'batch' ? 'Export Sizes' : 'Export Size'}
             </div>
-            <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
-              {format === 'svg' ? (
-                <>
-                  {currentSize.w} × {currentSize.h} <span style={{ color: '#6b7280', fontWeight: '400' }}>(Vector)</span>
-                </>
-              ) : (
-                <>
-                  {currentSize.w * scale} × {currentSize.h * scale} px
-                  {scale > 1 && <span style={{ color: '#6b7280', fontWeight: '400' }}> (@{scale}x)</span>}
-                </>
-              )}
-            </div>
+            {exportMode === 'batch' ? (
+              <div style={{ fontSize: '13px', color: '#111827' }}>
+                {availableRatios.map((ratioId, index) => {
+                  const size = getExportDimensions(ratioId)
+                  return (
+                    <div key={ratioId} style={{
+                      marginTop: index > 0 ? '4px' : 0,
+                      fontWeight: '500'
+                    }}>
+                      {size.id}: {format === 'svg' ? (
+                        <>{size.w} × {size.h} <span style={{ color: '#6b7280', fontWeight: '400' }}>(Vector)</span></>
+                      ) : (
+                        <>{size.w * scale} × {size.h * scale} px{scale > 1 && <span style={{ color: '#6b7280', fontWeight: '400' }}> (@{scale}x)</span>}</>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                {format === 'svg' ? (
+                  <>
+                    {currentSize.w} × {currentSize.h} <span style={{ color: '#6b7280', fontWeight: '400' }}>(Vector)</span>
+                  </>
+                ) : (
+                  <>
+                    {currentSize.w * scale} × {currentSize.h * scale} px
+                    {scale > 1 && <span style={{ color: '#6b7280', fontWeight: '400' }}> (@{scale}x)</span>}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Format */}
@@ -281,7 +384,11 @@ export function ExportModal({ isOpen, onClose, template, currentSize, currentPag
               opacity: exporting ? 0.7 : 1
             }}
           >
-            {exporting ? 'Exporting...' : 'Export'}
+            {exporting
+              ? exportProgress
+                ? `Exporting ${exportProgress.current}/${exportProgress.total}...`
+                : 'Exporting...'
+              : 'Export'}
           </button>
         </div>
       </div>

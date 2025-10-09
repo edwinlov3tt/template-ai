@@ -538,6 +538,7 @@ export default function Editor() {
         template={template}
         currentSize={canvasSize}
         currentPageId={currentPageId}
+        onCanvasSizeChange={setCanvasSize}
       />
 
       {/* Settings Modal */}

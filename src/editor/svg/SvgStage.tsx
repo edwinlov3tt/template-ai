@@ -254,7 +254,7 @@ export const SvgStage = React.forwardRef<SVGSVGElement, SvgStageProps>(({
     )
   }
 
-  const viewBox = template.canvas.baseViewBox
+  const viewBox: [number, number, number, number] = [0, 0, width, height]
   const currentRatio = ratioId || `${width}x${height}`
 
   // Get slots and frames from page if provided, otherwise fallback to template (legacy)

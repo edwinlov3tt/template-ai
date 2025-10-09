@@ -153,6 +153,12 @@ export interface Page {
   frames: Record<string, Record<string, { x: number; y: number; width: number; height: number; rotation?: number }>>
   /** Background color for this page */
   backgroundColor?: string
+  /** Preferred ratio ID for this page (e.g., "1080x1080", "728x90") */
+  preferredRatio?: string
+  /** Whether frames are stored in normalized or pixel coordinate system */
+  coordinateSystem?: 'normalized' | 'pixel'
+  /** Height used for normalization (long edge reference) */
+  normalizedHeight?: number
 }
 
 export interface Template {
